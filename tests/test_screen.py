@@ -279,3 +279,16 @@ def test_find_jpx_list_links_prefers_data_j_and_resolves():
     links = find_jpx_list_links(html, "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html")
     assert links[0] == "https://www.jpx.co.jp/markets/new-att/data_j.xls"
     assert links[1].endswith("/summary.xlsx") and len(links) == 2
+
+
+def test_jpx_list_reads_from_xlsx(tmp_path):
+    pytest.importorskip("openpyxl")
+    from tradelab.screen import parse_jpx_list
+    raw = pd.DataFrame({"日付": [20261031, 20261031], "コード": [7203, "285A"],
+                        "銘柄名": ["トヨタ自動車", "キオクシアHD"],
+                        "市場・商品区分": ["プライム（内国株式）", "プライム（内国株式）"],
+                        "33業種区分": ["輸送用機器", "電気機器"]})
+    path = tmp_path / "data_j.xlsx"
+    raw.to_excel(path, index=False)
+    t = parse_jpx_list(pd.read_excel(path))
+    assert list(t["symbol"]) == ["7203.T", "285A.T"]

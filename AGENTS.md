@@ -39,7 +39,7 @@
 ## 5. コマンド
 
 ```bash
-pip install "pandas>=2.0" "numpy>=1.24" "matplotlib>=3.7" "requests>=2.28" "xlrd>=2.0" pytest
+pip install "pandas>=2.0" "numpy>=1.24" "matplotlib>=3.7" "requests>=2.28" "xlrd>=2.0" "openpyxl>=3.1" pytest
 ```
 
 ```bash
