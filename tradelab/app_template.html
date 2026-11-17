@@ -1,0 +1,1082 @@
+<title>スイング銘柄ランキング</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one phone-width column. Sticky date header, market strip, then a ranked list whose rows open in place. */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --ink:#111827; --ink2:#4b5563; --muted:#8a93a3;
+  --line:#e3e7ee; --accent:#1f3a8a; --accent-soft:#e6ebf8;
+  --series:#2a78d6; --series-soft:rgba(42,120,214,.12); --grid:#e3e7ee; --axis:#c2c8d2;
+  --good:#0a7d32; --good-soft:#dff3e5; --bad:#c13030; --bad-soft:#fbe4e4;
+  --warn-bg:#fff6dc; --warn-line:#f0cf6b; --warn-ink:#5c4400;
+  --font:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0d1016; --surface:#171b23; --ink:#eef0f4; --ink2:#b6bdc9; --muted:#7f8898;
+  --line:#272d39; --accent:#9db4ff; --accent-soft:#1f2a47;
+  --series:#3987e5; --series-soft:rgba(57,135,229,.16); --grid:#272d39; --axis:#3a4250;
+  --good:#3ecf6e; --good-soft:#12301d; --bad:#f07878; --bad-soft:#3a1a1a;
+  --warn-bg:#2f2710; --warn-line:#6b5718; --warn-ink:#f1dc9a; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0d1016; --surface:#171b23; --ink:#eef0f4; --ink2:#b6bdc9; --muted:#7f8898;
+  --line:#272d39; --accent:#9db4ff; --accent-soft:#1f2a47;
+  --series:#3987e5; --series-soft:rgba(57,135,229,.16); --grid:#272d39; --axis:#3a4250;
+  --good:#3ecf6e; --good-soft:#12301d; --bad:#f07878; --bad-soft:#3a1a1a;
+  --warn-bg:#2f2710; --warn-line:#6b5718; --warn-ink:#f1dc9a; color-scheme:dark }
+
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5;
+  -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:640px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px))}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0;padding:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--surface);
+  border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-block:10px}
+header.top h1{font-size:17px;margin:0;letter-spacing:.01em}
+header.top .date{font-size:12px;color:var(--ink2);white-space:nowrap}
+
+main.wrap{display:flex;flex-direction:column;gap:14px;padding-block:14px 28px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--line);border-radius:10px;padding:3px;gap:3px}
+.seg button{padding:8px 6px;border-radius:8px;font-weight:600;font-size:14px;color:var(--ink2)}
+.seg button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+
+.markets{display:flex;flex-direction:column;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mk{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line)}
+.mk:first-child{border-top:0}
+.mk .name{font-weight:600;flex:0 0 auto}
+.mk .desc{color:var(--ink2);font-size:12px;flex:1;min-width:0}
+.pill{font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--good-soft);color:var(--good)} .pill.ng{background:var(--bad-soft);color:var(--bad)}
+.note{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink);border-radius:12px;padding:10px 12px;font-size:13px}
+
+.tools{display:flex;flex-direction:column;gap:8px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;color:var(--ink2)}
+.chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:600}
+#q{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px;font-size:16px}
+.count{font-size:12px;color:var(--muted)}
+
+ol.list{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+ol.list>li{border-top:1px solid var(--line)}
+ol.list>li:first-child{border-top:0}
+.row{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;padding:11px 12px}
+.rank{font-size:15px;font-weight:700;color:var(--muted);text-align:right}
+li.cand .rank{color:var(--good)}
+.id{min-width:0}
+.sym{font-weight:700;font-size:16px;letter-spacing:.01em}
+.nm{font-size:12px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crit{display:flex;gap:3px;margin-top:5px}
+.crit span{font-size:10px;font-weight:700;line-height:1;padding:3px 5px;border-radius:5px;border:1px solid transparent}
+.crit .y{background:var(--good-soft);color:var(--good)}
+.crit .x{border-color:var(--line);color:var(--muted);text-decoration:line-through}
+.side{text-align:right;white-space:nowrap}
+.score{font-size:17px;font-weight:700}
+.score small{font-size:12px;color:var(--muted);font-weight:600}
+.chg{font-size:11px;color:var(--muted)}
+.chg.up{color:var(--good)} .chg.down{color:var(--bad)} .chg.new{color:var(--accent);font-weight:700}
+.tag{display:inline-block;font-size:10px;font-weight:700;background:var(--good);color:var(--surface);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+
+.detail{padding:2px 12px 14px;display:flex;flex-direction:column;gap:14px}
+.detail h3{font-size:12px;color:var(--ink2);margin:0 0 4px;font-weight:600;letter-spacing:.04em}
+.readout{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2);min-height:18px}
+.readout b{color:var(--ink)}
+svg{display:block;width:100%;height:auto;touch-action:pan-y}
+svg text{font-family:var(--font);font-size:10px;fill:var(--muted)}
+svg text.v{fill:var(--ink2);font-weight:600}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kv>div{background:var(--surface);padding:8px 10px;min-width:0}
+.kv .k{font-size:11px;color:var(--ink2)}
+.kv .val{font-size:16px;font-weight:700}
+.kv .val.y{color:var(--good)} .kv .val.x{color:var(--bad)}
+.kv .th{font-size:10px;color:var(--muted)}
+a.ext{color:var(--accent);font-size:13px;font-weight:600;text-decoration:none}
+.more{width:100%;padding:12px;border-top:1px solid var(--line);color:var(--accent);font-weight:600;font-size:14px}
+.empty{padding:28px 16px;text-align:center;color:var(--ink2);font-size:14px}
+
+details.rules{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px}
+details.rules summary{font-weight:600;cursor:pointer}
+details.rules dl{margin:8px 0 0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
+details.rules dt{font-weight:700} details.rules dd{margin:0;color:var(--ink2)}
+footer{font-size:11px;color:var(--muted);line-height:1.6}
+.crit .g{background:var(--accent);color:var(--surface)}
+.crit .sep{width:1px;background:var(--line);padding:0;margin:0 2px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px}
+.card summary{font-weight:600;cursor:pointer}
+.set{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+.set label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--ink2);min-width:0}
+.set input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 8px;font-size:16px}
+.small{font-size:11px;color:var(--muted);margin-top:6px}
+table.st{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+table.st th,table.st td{padding:5px 4px;border-top:1px solid var(--line);text-align:right;white-space:nowrap}
+table.st th:first-child,table.st td:first-child{text-align:left;white-space:normal}
+.ptop{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:8px}
+.ptop>div{background:var(--surface);padding:7px 8px}
+.ptop .k{font-size:11px;color:var(--ink2)} .ptop .val{font-size:16px;font-weight:700}
+.ptop .val.pos{color:var(--good)} .ptop .val.neg{color:var(--bad)}
+.card h2.ch{font-size:15px;margin:0}
+.order{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.order input{width:7.5em;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 8px;font-size:16px}
+.order .small{flex-basis:100%;margin:0}
+.exits{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;flex-basis:100%}
+.exits label{display:flex;flex-direction:column;gap:3px}
+.exits label input{width:100%;box-sizing:border-box;color:var(--ink);border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:16px}
+#demo table.st{table-layout:auto;font-size:12px}
+#demo table.st td,#demo table.st th{white-space:normal;padding:5px 3px}
+#demo table.st td:last-child,#demo table.st th:last-child{white-space:nowrap}
+.order input{color:var(--ink)}
+.exits label.chk{grid-column:1/-1;flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--ink)}
+.exits label.chk input{width:auto}
+.order span.small{flex-basis:auto}
+button.act{background:var(--accent);color:var(--surface);border-radius:8px;padding:8px 14px;font-weight:700;font-size:14px}
+button.mini{border:1px solid var(--line);border-radius:7px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--accent);background:var(--surface)}
+button.mini.warn{color:var(--bad);margin-top:10px}
+button:disabled{opacity:.5}
+.rowwrap{display:flex;align-items:stretch}
+.rowwrap .row{flex:1;min-width:0}
+button.star{flex:0 0 44px;font-size:20px;color:var(--muted);border-left:1px solid var(--line)}
+button.star.on{color:#d99a00}
+button.star.big{flex:none;border:1px solid var(--line);border-radius:999px;font-size:13px;font-weight:600;padding:5px 12px;margin-left:auto}
+.pr{font-size:12px;color:var(--ink2);margin-top:2px}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+.dtop{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:8px}
+.dtop b{font-size:20px}
+li.addnew{padding:12px;display:flex;flex-direction:column;gap:8px}
+.oform{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.seg2{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;background:var(--line);border-radius:9px;padding:3px}
+.seg2 button{padding:7px 4px;border-radius:7px;font-size:13px;font-weight:600;color:var(--ink2)}
+.seg2 button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fld{display:flex;flex-direction:column;gap:3px}
+.fld input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:16px;color:var(--ink)}
+.fld[hidden]{display:none}
+button.act.buy{background:var(--good)} button.act.sell{background:var(--bad)}
+.opbox{border:1px solid var(--line);border-radius:10px;padding:4px 10px 10px;margin-top:8px}
+.warnmsg{color:var(--bad);font-weight:600}
+td.pre{white-space:pre-line}
+details.sub{margin-top:12px} details.sub summary{font-size:12px;color:var(--ink2);font-weight:600;cursor:pointer}
+.sheet{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.sheet[hidden]{display:none}
+.sheetbg{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.sheetcard{position:relative;background:var(--surface);color:var(--ink);width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));box-sizing:border-box}
+.shead{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:10px;margin:8px 0}
+.shead.buy{background:var(--good-soft);color:var(--good)} .shead.sell{background:var(--bad-soft);color:var(--bad)}
+.shead span{color:var(--ink);font-size:13px}
+dl.conf{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0 0 8px;font-size:13px}
+dl.conf dt{color:var(--ink2)} dl.conf dd{margin:0;text-align:right;font-weight:600}
+.sbtns{display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:12px}
+.sbtns button{padding:12px;font-size:15px}
+body.modal{overflow:hidden}
+.card h4{font-size:12px;color:var(--ink2);margin:12px 0 0;font-weight:600}
+table.st thead th{color:var(--ink2);font-weight:600;border-top:0}
+td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad);font-weight:700}
+.plan{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:4px}
+.plan .ln{display:flex;justify-content:space-between;gap:8px}
+.plan .ln span:first-child{color:var(--ink2)}
+.plan .ln b.bad{color:var(--bad)} .plan .ln b.good{color:var(--good)}
+@media (prefers-reduced-motion:no-preference){ .row{transition:background .15s} .row:active{background:var(--accent-soft)} }
+</style>
+
+<header class="top"><div class="wrap">
+  <h1>スイング銘柄ランキング</h1><span class="date num" id="hdate"></span>
+</div></header>
+
+<main class="wrap">
+  <div class="seg" role="tablist" id="tabs"></div>
+  <section class="markets" id="markets" aria-label="市場の状態"></section>
+  <div class="note" id="note" hidden></div>
+  <section class="card" aria-labelledby="demoh"><h2 class="ch" id="demoh">デモトレード（仮想資金）</h2><div id="demo"></div></section>
+  <details class="card" id="setbox"><summary>資金と1回の許容損失（数量の目安に使う）</summary>
+    <div class="set">
+      <label>資金（円）<input id="cap" type="number" inputmode="numeric" min="0" step="10000"></label>
+      <label>1回の損失上限（%）<input id="risk" type="number" inputmode="decimal" min="0.1" max="10" step="0.1"></label>
+      <label>米ドル円<input id="fx" type="number" inputmode="decimal" min="1" step="0.01"></label>
+    </div>
+    <div class="small" id="fxnote"></div>
+  </details>
+  <div class="tools">
+    <div class="chips" id="chips"></div>
+    <input id="q" type="search" inputmode="search" autocomplete="off" placeholder="銘柄コード・名称で絞り込み" aria-label="銘柄コード・名称で絞り込み">
+    <div class="count" id="count"></div>
+  </div>
+  <ol class="list" id="list"></ol>
+  <details class="card" id="paperbox"><summary>紙上売買の記録（自動）</summary><div id="paper"></div></details>
+  <details class="card" id="statbox"><summary>過去データでのシグナル成績</summary><div id="stats"></div></details>
+  <details class="rules" id="rules"><summary>判定ルール</summary><dl id="ruledl"></dl></details>
+  <footer id="foot"></footer>
+</main>
+
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-label="注文内容の確認">
+  <div class="sheetbg" id="sheetbg"></div>
+  <div class="sheetcard"><h2 class="ch">注文内容の確認</h2><div id="sheetbody"></div></div>
+</div>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function(){
+"use strict";
+var D = JSON.parse(document.getElementById("data").textContent);
+Object.keys(D.lists).forEach(function(k){ D.lists[k].key = k; });
+var keys = Object.keys(D.lists).filter(function(k){ return k !== "watch"; }).concat(["fav"]), cfg = D.config;
+var state = {tab: keys[0], filter: "all", q: "", open: null, limit: 40};
+var SIGN = {BO: "ブレイクアウト", PP: "ポケットピボット", PB: "押し目（RSI2）", VCP: "収縮（VCP）"};
+var opt = {cap: 300000, risk: 1, fx: D.fx ? D.fx.usdjpy : 150};
+try { var so = JSON.parse(localStorage.getItem("opt") || "null"); if (so) { opt.cap = +so.cap || opt.cap; opt.risk = +so.risk || opt.risk; if (so.fxManual && +so.fx) { opt.fx = +so.fx; opt.fxManual = true; } } } catch (e) {}
+try { var saved = localStorage.getItem("tab"); if (saved && keys.indexOf(saved) >= 0) state.tab = saved; } catch (e) {}
+
+var $ = function(id){ return document.getElementById(id); };
+function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function pct(v, sign){ return v == null ? "–" : (sign && v > 0 ? "+" : "") + (Math.abs(v) >= 10 ? Math.round(v * 100).toLocaleString() : (v * 100).toFixed(0)) + "%"; }
+function price(v){ return v == null ? "–" : v >= 1000 ? v.toLocaleString(undefined, {maximumFractionDigits: 0}) : v >= 10 ? v.toFixed(2) : v.toPrecision(3); }
+var TREND = {"1": "上昇", "0": "なし", "-1": "下降"};
+var NS = "http://www.w3.org/2000/svg";
+function svg(tag, attrs, text){ var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; }
+
+/* ---- price chart: one series, crosshair readout ---- */
+function priceChart(ch){
+  var W = 340, H = 150, L = 6, R = 44, T = 10, B = 18, n = ch.c.length;
+  var lo = Math.min.apply(null, ch.c), hi = Math.max(Math.max.apply(null, ch.c), ch.hi);
+  var pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+  var x = function(i){ return L + (W - L - R) * i / (n - 1); };
+  var y = function(v){ return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+  var box = el("div");
+  var read = el("div", "readout num");
+  var rl = el("span"), rr = el("span");
+  function show(i){ rl.textContent = ch.d[i]; rr.innerHTML = ""; var b = el("b", null, price(ch.c[i])); rr.append("終値 ", b); }
+  read.append(rl, rr); box.append(read);
+  var s = svg("svg", {viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "過去1年の終値の推移"});
+  [lo + pad, (lo + hi) / 2, hi - pad].forEach(function(v){
+    s.append(svg("line", {x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1}));
+    s.append(svg("text", {x: W - R + 5, y: y(v) + 3}, price(v)));
+  });
+  s.append(svg("line", {x1: L, x2: W - R, y1: y(ch.hi), y2: y(ch.hi), stroke: "var(--axis)", "stroke-width": 1, "stroke-dasharray": "3 3"}));
+  s.append(svg("text", {x: L + 2, y: y(ch.hi) - 3}, "52週高値 " + price(ch.hi)));
+  var pts = ch.c.map(function(v, i){ return x(i).toFixed(1) + "," + y(v).toFixed(1); });
+  s.append(svg("path", {d: "M" + pts.join("L") + "L" + x(n - 1) + "," + (H - B) + "L" + x(0) + "," + (H - B) + "Z", fill: "var(--series-soft)", stroke: "none"}));
+  s.append(svg("path", {d: "M" + pts.join("L"), fill: "none", stroke: "var(--series)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round"}));
+  s.append(svg("text", {x: L, y: H - 4}, ch.d[0].slice(0, 7)));
+  s.append(svg("text", {x: W - R, y: H - 4, "text-anchor": "end"}, ch.d[n - 1].slice(0, 7)));
+  var cross = svg("line", {y1: T, y2: H - B, stroke: "var(--axis)", "stroke-width": 1});
+  var dot = svg("circle", {r: 4, fill: "var(--series)", stroke: "var(--surface)", "stroke-width": 2});
+  function move(i){ cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(ch.c[i])); show(i); }
+  s.append(cross, dot); move(n - 1);
+  function at(ev){ var r = s.getBoundingClientRect(); var px = (ev.clientX - r.left) / r.width * W; move(Math.max(0, Math.min(n - 1, Math.round((px - L) / (W - L - R) * (n - 1))))); }
+  s.addEventListener("pointerdown", at); s.addEventListener("pointermove", at);
+  box.append(s); return box;
+}
+
+/* ---- EPS bars: few values, each labelled ---- */
+function barChart(items, label){
+  var W = 340, H = 104, T = 16, B = 18, n = items.length;
+  var vals = items.map(function(d){ return d[1]; });
+  var hi = Math.max(0, Math.max.apply(null, vals)), lo = Math.min(0, Math.min.apply(null, vals));
+  if (hi === lo) hi = lo + 1;
+  var y = function(v){ return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+  var slot = W / n, bw = Math.min(34, slot - 12);
+  var s = svg("svg", {viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": label});
+  s.append(svg("line", {x1: 0, x2: W, y1: y(0), y2: y(0), stroke: "var(--axis)", "stroke-width": 1}));
+  items.forEach(function(d, i){
+    var cx = slot * i + slot / 2, v = d[1], top = Math.min(y(v), y(0)), h = Math.max(1, Math.abs(y(v) - y(0)));
+    s.append(svg("rect", {x: cx - bw / 2, y: top, width: bw, height: h, rx: Math.min(4, h / 2), fill: "var(--series)"}));
+    s.append(svg("text", {x: cx, y: v >= 0 ? top - 4 : top + h + 10, "text-anchor": "middle", "class": "v"}, v.toFixed(2)));
+    s.append(svg("text", {x: cx, y: H - 4, "text-anchor": "middle"}, d[0]));
+  });
+  return s;
+}
+
+function kv(k, val, th, pass){
+  var d = el("div"); d.append(el("div", "k", k));
+  d.append(el("div", "val num" + (pass == null ? "" : pass ? " y" : " x"), val));
+  if (th) d.append(el("div", "th", th)); return d;
+}
+
+function detail(r, L, k){
+  var box = el("div", "detail"), ch = D.charts[r.s], P = {};
+  var top = el("div", "dtop"), dc = dayChg(r);
+  top.append(el("b", "num", money(r.cl, r.cu || "USD")));
+  if (dc != null) top.append(el("span", "num " + (dc > 0 ? "pos" : dc < 0 ? "neg" : ""), "前日比 " + signPct(dc)));
+  var fs = starBtn(r.s); fs.classList.add("big"); fs.textContent = isFav(r.s) ? "★ お気に入り" : "☆ お気に入りに追加"; top.append(fs);
+  box.append(top);
+  L.crit.forEach(function(c, i){ P[c] = r.p[i] === "1"; });
+  if (ch && ch.c.length > 1) { var a = el("div"); a.append(el("h3", null, "株価（過去1年・終値）"), priceChart(ch)); box.append(a); }
+  var g = el("div", "kv");
+  if ("C" in P) {
+    g.append(kv("C 四半期EPS 前年同期比", pct(r.eg, true), "基準 +" + pct(cfg.c_min_eps_growth) + " 以上", P.C));
+    g.append(kv("四半期売上 前年同期比", pct(r.rg, true), "参考値"));
+    g.append(kv("A 年次EPS 年平均成長", pct(r.ca, true), "基準 +" + pct(cfg.a_min_eps_cagr) + " 以上・毎年増益", P.A));
+    g.append(kv("A ROE", pct(r.roe), "基準 " + pct(cfg.a_min_roe) + " 以上", P.A));
+  }
+  g.append(kv("N 52週高値からの距離", r.bh == null ? "–" : "-" + pct(r.bh), "基準 " + pct(cfg.n_max_below_high) + " 以内", P.N));
+  g.append(kv("S 上昇日÷下落日 出来高", r.uv == null ? "–" : r.uv.toFixed(2), "基準 " + cfg.s_min_updown_volume + " 以上", P.S));
+  g.append(kv("L 相対的強さ（1〜99）", r.rs == null ? "–" : String(r.rs), "基準 " + cfg.l_min_rs_rank + " 以上", P.L));
+  g.append(kv("DOW ダウ理論トレンド", TREND[r.dt] + "（" + r.db + "日）", "基準 上昇トレンド", P.DOW));
+  g.append(kv("TT トレンドテンプレート", P.TT ? "合格" : "不合格", "移動平均の並び・52週高安値", P.TT));
+  g.append(kv("RSI(2)", r.r2 == null ? "–" : r.r2.toFixed(0), "押し目シグナルは " + cfg.pb_rsi + " 未満"));
+  box.append(g);
+  var sg = el("div"); sg.append(el("h3", null, "今日の仕掛けシグナル"));
+  var fired = L.sigs.filter(function(s, i){ return r.g[i] === "1"; });
+  sg.append(el("div", null, fired.length ? fired.map(function(s){ return s + " " + SIGN[s]; }).join("、") : "なし（条件が整っても、今日は仕掛けの形ではない）"));
+  box.append(sg);
+  box.append(planBox(r, L));
+  box.append(buyBox(r, L, k));
+  if (ch && ch.q && ch.q.length > 1) { var q = el("div"); q.append(el("h3", null, "四半期EPS（希薄化後）"), barChart(ch.q, "四半期EPSの推移")); box.append(q); }
+  if (ch && ch.a && ch.a.length > 1) { var y = el("div"); y.append(el("h3", null, "年次EPS（希薄化後）"), barChart(ch.a, "年次EPSの推移")); box.append(y); }
+  var a2 = el("a", "ext", "Yahoo Finance でチャートと決算を見る ↗");
+  a2.href = "https://finance.yahoo.com/quote/" + encodeURIComponent(r.s); a2.target = "_blank"; a2.rel = "noopener";
+  box.append(a2); return box;
+}
+
+function change(r, rank, L){
+  if (!L.hasPrev) return null;
+  if (r.prev == null) return el("div", "chg new", "NEW");
+  var d = r.prev - rank;
+  return el("div", "chg num" + (d > 0 ? " up" : d < 0 ? " down" : ""), d > 0 ? "▲" + d : d < 0 ? "▼" + (-d) : "―");
+}
+
+function planQty(r, L){
+  if (r.st == null || r.cl == null || r.cl <= r.st) return 0;
+  var fx = rateOf(r.cu || "USD") || opt.fx, frac = fracOf(L.key || "", r.s);
+  var qty = Math.min(opt.cap * opt.risk / 100 / ((r.cl - r.st) * fx), opt.cap / (r.cl * fx));
+  return frac ? Math.floor(qty * 10000) / 10000 : Math.floor(qty);
+}
+
+/* ---- demo trading: orders kept in the artifact's db, fills derived from embedded daily bars ---- */
+var CAPITAL = 300000, ORDER_DAYS = 60, FAV_MAX = 50;
+var TYPE = {market: "成行", limit: "指値", stop: "逆指値"};
+var demo = {state: "loading", db: null, owner: false, orders: [], exits: {}, watch: {}, account: null, note: "", busy: {}, armReset: 0};
+
+function feeOf(k){ return k === "crypto" ? 0.0015 : 0.001; }       // one-way cost assumption
+function curOf(k, s){ var r = rowOf(k, s); return r && r.cu || "USD"; }
+function rateOf(cur){
+  if (cur === "JPY") return 1;
+  if (cur === "USD") return opt.fx;
+  var R = D.fx && D.fx.rates || {}; return R[cur] || null;
+}
+function money(v, cur){
+  if (v == null) return "–";
+  if (cur === "JPY") return "¥" + Math.round(v).toLocaleString();
+  return (cur === "USD" ? "$" : cur + " ") + price(v);
+}
+function nyParts(t, tz){
+  var f = new Intl.DateTimeFormat("en-CA", {timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false});
+  var p = {}; f.formatToParts(t).forEach(function(x){ p[x.type] = x.value; });
+  return {d: p.year + "-" + p.month + "-" + p.day, m: (+p.hour % 24) * 60 + (+p.minute)};
+}
+function addDay(d){ var t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); }
+/* earliest bar date whose session opens after the order was placed */
+function minFillDate(o){
+  var t = new Date(o.placedAt);
+  if (o.k === "crypto" || /-USD$/.test(o.s || "")) return addDay(nyParts(t, "UTC").d);   // daily bars open 00:00 UTC
+  if (/\.T$/.test(o.s || "")) { var tk = nyParts(t, "Asia/Tokyo"); return tk.m >= 540 ? addDay(tk.d) : tk.d; }   // Tokyo 09:00
+  var ny = nyParts(t, "America/New_York");
+  return ny.m >= 570 ? addDay(ny.d) : ny.d;                                              // New York 09:30
+}
+/* trading sessions in [a, b): weekdays for markets, every day for crypto (holidays ignored) */
+function sessionsBetween(a, b, everyDay){
+  var n = 0, t = new Date(a + "T00:00:00Z"), end = new Date(b + "T00:00:00Z");
+  while (t < end && n < 1000) { var w = t.getUTCDay(); if (everyDay || (w !== 0 && w !== 6)) n++; t.setUTCDate(t.getUTCDate() + 1); }
+  return n;
+}
+/* {d, p} filled, {expired: d} lapsed, or null still waiting */
+function findFill(o){
+  var B = (D.opens || {})[o.k]; if (!B || !B.o[o.s]) return null;
+  var lo = minFillDate(o), after = addDay(o.asof), type = o.type || "market", n = 0;
+  if (after > lo) lo = after;
+  if (lo < B.d[0]) n = sessionsBetween(lo, B.d[0], o.k === "crypto" || /-USD$/.test(o.s));   // bars before the embedded window
+  for (var i = 0; i < B.d.length; i++) {
+    if (B.d[i] < lo) continue;
+    var op = B.o[o.s][i], hi = B.h[o.s][i], lw = B.l[o.s][i];
+    if (op == null) continue;
+    if (++n > ORDER_DAYS) return {expired: B.d[i]};
+    if (type === "market") return {d: B.d[i], p: op};
+    var buy = o.side === "buy", px = o.px;
+    if (type === "limit") {
+      if (buy && lw <= px) return {d: B.d[i], p: Math.min(op, px)};
+      if (!buy && hi >= px) return {d: B.d[i], p: Math.max(op, px)};
+    } else if (type === "stop") {
+      if (buy && hi >= px) return {d: B.d[i], p: Math.max(op, px)};
+      if (!buy && lw <= px) return {d: B.d[i], p: Math.min(op, px)};
+    }
+  }
+  return null;
+}
+function allRows(){ var out = []; Object.keys(D.lists).forEach(function(k){ D.lists[k].rows.forEach(function(r){ out.push({k: k, r: r}); }); }); return out; }
+function rowOf(k, s){ var L = D.lists[k]; if (!L) return null; for (var i = 0; i < L.rows.length; i++) if (L.rows[i].s === s) return L.rows[i]; return null; }
+function findRow(s){ var keys2 = ["us", "crypto", "watch"]; for (var i = 0; i < keys2.length; i++) { var r = rowOf(keys2[i], s); if (r) return {k: keys2[i], r: r}; } return null; }
+function listOf(k){ return D.lists[k]; }
+function fracOf(k, s){ return k === "crypto" || /-USD$/.test(s); }
+
+function safeId(s){ return s.replace(/[^A-Za-z0-9_\-.~:@+]/g, "_"); }
+function exitKey(k, s){ return k + "__" + safeId(s); }
+/* stop / target settings in force for a position on `day` (omit for the latest) */
+function exitFor(k, s, P, day){
+  var e = demo.exits[exitKey(k, s)], b = P.lastBuy;
+  var fromBuy = b && b.auto ? {on: true, st: b.st, tg: b.tg, from: P.first, at: b.placedAt} : null;
+  if (e && (!b || e.setAt > b.placedAt)) {
+    var from = minFillDate({k: k, s: s, placedAt: e.setAt});
+    if (!day || day >= from) return {on: !!e.on, st: e.st, tg: e.tg, from: from, at: e.setAt};
+  }
+  return fromBuy;
+}
+function bar(k, s, i){ var B = D.opens[k]; return {o: B.o[s][i], h: B.h[s][i], l: B.l[s][i]}; }
+
+function book(){
+  var cap = demo.account && demo.account.capital || CAPITAL, cash = cap, pos = {}, realized = 0, hist = [], pending = [], persist = [], autos = [], reserved = 0, log = [];
+  var live = demo.orders.filter(function(o){ return o.status !== "cancelled" && o.status !== "expired"; });
+  live.forEach(function(o){ if (!o.fill) { var f = findFill(o); if (f && f.expired) { o._expired = f.expired; persist.push(o); } else if (f) { o._fill = f; persist.push(o); } } });
+  var ev = live.filter(function(o){ return o.fill || o._fill; });
+  function fd(o){ return (o.fill || o._fill).d; }
+  ev.sort(function(a, b){ return fd(a) < fd(b) ? -1 : fd(a) > fd(b) ? 1 : a.side !== b.side ? (a.side === "buy" ? -1 : 1) : a.placedAt < b.placedAt ? -1 : 1; });
+  var dates = {}; ev.forEach(function(o){ dates[fd(o)] = 1; });
+  Object.keys(D.opens || {}).forEach(function(k){ D.opens[k].d.forEach(function(d){ dates[d] = 1; }); });
+  var days = Object.keys(dates).sort(), ei = 0;
+  function sell(o, f){
+    var key = o.k + ":" + o.s, P = pos[key];
+    var q = P ? Math.min(o.q, P.q) : 0; if (q <= 1e-12) { o._void = true; return; }
+    var fee = feeOf(o.k), avg = P.cost / P.q, proceeds = q * f.p * o.fx * (1 - fee), pnl = proceeds - avg * q;
+    realized += pnl; cash += proceeds; P.cost -= avg * q; P.usd -= P.usd / P.q * q; P.q = +(P.q - q).toFixed(8);
+    hist.push({k: o.k, s: o.s, d: f.d, q: q, p: f.p, pnl: pnl, pct: pnl / (avg * q), why: o.auto || "manual", cu: P.cu});
+  }
+  days.forEach(function(day){
+    for (; ei < ev.length && fd(ev[ei]) === day; ei++) {
+      var o = ev[ei], f = o.fill || o._fill, key = o.k + ":" + o.s, fee = feeOf(o.k);
+      if (o.side === "buy") {
+        var P = pos[key] || (pos[key] = {k: o.k, s: o.s, q: 0, cost: 0, usd: 0, first: f.d, cu: o.cu || curOf(o.k, o.s)});
+        if (P.q <= 1e-12) P.first = f.d;
+        var gross = o.q * f.p * o.fx;
+        P.q += o.q; P.usd += o.q * f.p; P.cost += gross * (1 + fee); cash -= gross * (1 + fee); P.fx = o.fx; P.lastBuy = o;
+      } else sell(o, f);
+    }
+    Object.keys(pos).forEach(function(key){
+      var P = pos[key]; if (P.q <= 1e-12 || day < P.first) return;
+      var X = exitFor(P.k, P.s, P, day); if (!X || !X.on || day < X.from) return;
+      var B = D.opens[P.k]; if (!B || !B.o[P.s]) return;
+      var i = B.d.indexOf(day); if (i < 0) return;
+      var b = bar(P.k, P.s, i); if (b.o == null) return;
+      var entryDay = day === P.first, px = null, why = null;
+      if (X.st != null && !entryDay && b.o <= X.st) { px = b.o; why = "stop"; }
+      else if (X.st != null && b.l <= X.st) { px = X.st; why = "stop"; }
+      else if (X.tg != null && !entryDay && b.o >= X.tg) { px = b.o; why = "target"; }
+      else if (X.tg != null && b.h >= X.tg) { px = X.tg; why = "target"; }
+      if (!why) return;
+      var id = "auto-" + exitKey(P.k, P.s) + "-" + day;
+      var so = {id: id, k: P.k, s: P.s, side: "sell", type: "market", q: P.q, fx: P.fx, cu: P.cu, auto: why, asof: day, placedAt: X.at || "", status: "open", fill: {d: day, p: px}};
+      sell(so, so.fill); autos.push(so);
+    });
+  });
+  live.forEach(function(o){ if (!o.fill && !o._fill && !o._expired) {
+    pending.push(o);
+    if (o.side === "buy") { var r = rowOf(o.k, o.s), px = o.type && o.type !== "market" ? o.px : (r && r.cl || 0); reserved += o.q * px * o.fx * (1 + feeOf(o.k)); }
+  } });
+  demo.orders.forEach(function(o){
+    var st = o.status === "cancelled" ? "取消" : (o.status === "expired" || o._expired) ? "期限切れ" : o._void ? "無効（保有なし）" : (o.fill || o._fill) ? "約定" : "注文中";
+    log.push({o: o, st: st, f: o.fill || o._fill || null});
+  });
+  autos.forEach(function(o){ if (!demo.orders.some(function(x){ return x.id === o.id; })) log.push({o: o, st: "約定", f: o.fill}); });
+  log.sort(function(a, b){ return (b.o.placedAt || "") < (a.o.placedAt || "") ? -1 : 1; });
+  var holdings = [], value = 0;
+  Object.keys(pos).forEach(function(key){
+    var P = pos[key]; if (P.q <= 1e-9) return;
+    var r = rowOf(P.k, P.s), px = r && r.cl, rt = rateOf(P.cu) || P.fx, v = px == null ? P.cost : P.q * px * rt, X = exitFor(P.k, P.s, P);
+    value += v; holdings.push({k: P.k, s: P.s, q: P.q, cost: P.cost, avg: P.usd / P.q, px: px, pc: r && r.pc, val: v, pnl: v - P.cost, x: X, first: P.first, cu: P.cu});
+  });
+  hist.reverse();
+  return {cap: cap, cash: cash, value: value, equity: cash + value, realized: realized, holdings: holdings, pending: pending, hist: hist, persist: persist, autos: autos, reserved: reserved, log: log};
+}
+
+function heldQty(k, s, B){ var q = 0; B.holdings.forEach(function(h){ if (h.k === k && h.s === s) q = h.q; });
+  B.pending.forEach(function(o){ if (o.k === k && o.s === s && o.side === "sell") q -= o.q; }); return Math.max(0, q); }
+function holdingOf(k, s, B){ var h = null; B.holdings.forEach(function(x){ if (x.k === k && x.s === s) h = x; }); return h; }
+
+function persistFills(B){
+  if (!demo.owner) return;
+  B.persist.forEach(function(o){
+    if (demo.busy[o.id]) return; demo.busy[o.id] = 1;
+    var patch = o._expired ? {status: "expired", expiredOn: o._expired} : {fill: o._fill};
+    demo.db.doc("demo/account/orders/" + o.id).update(patch)
+      .catch(function(){ delete demo.busy[o.id]; });   // written once per visit; retried only after a failure
+  });
+  B.autos.forEach(function(o){                          // automatic stop / target sells, one document per id
+    if (demo.busy[o.id]) return; demo.busy[o.id] = 1;
+    var body = {}; Object.keys(o).forEach(function(k){ if (k !== "id") body[k] = o[k]; });
+    demo.db.doc("demo/account/orders/" + o.id).set(body).catch(function(){ delete demo.busy[o.id]; });
+  });
+}
+
+function yen(v, sign){ return v == null ? "–" : (sign && v > 0 ? "+" : v < 0 ? "−" : "") + Math.round(Math.abs(v)).toLocaleString() + "円"; }
+function signPct(v){ return v == null || !isFinite(v) ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v * 100).toFixed(2) + "%"; }
+function dayChg(r){ return r && r.cl != null && r.pc ? r.cl / r.pc - 1 : null; }
+
+/* ---- order form, preview and confirmation ---- */
+function orderForm(k, r, side, defaults){
+  var cu = r.cu || "USD", frac = fracOf(k, r.s), f = el("div", "oform");
+  var sel = el("div", "seg2"), type = "market";
+  var qty = el("input"), pxIn = el("input"), msg = el("div", "small");
+  [qty, pxIn].forEach(function(i){ i.type = "number"; i.inputMode = "decimal"; i.min = "0"; });
+  qty.step = frac ? "0.0001" : "1"; pxIn.step = "any";
+  qty.value = defaults.q; qty.setAttribute("aria-label", "数量");
+  pxIn.value = r.cl != null ? +(+r.cl).toPrecision(6) : ""; pxIn.setAttribute("aria-label", "価格");
+  var pxRow = el("label", "small fld"); pxRow.append(el("span", null, "価格（" + (cu === "JPY" ? "円" : cu) + "）"), pxIn);
+  var hint = el("div", "small");
+  function setType(t){
+    type = t; Array.prototype.forEach.call(sel.children, function(b){ b.setAttribute("aria-pressed", b.dataset.t === t); });
+    pxRow.hidden = t === "market";
+    hint.textContent = t === "market" ? "次の取引日の始値で約定する。" :
+      t === "limit" ? (side === "buy" ? "この価格以下になった日に約定（始値が下なら始値）。" : "この価格以上になった日に約定（始値が上なら始値）。") + "取消まで有効（最長" + ORDER_DAYS + "取引日）。" :
+      (side === "buy" ? "この価格以上に上がった日に買う（上昇を確かめてから買う）。" : "この価格以下に下がった日に売る。") + "取消まで有効（最長" + ORDER_DAYS + "取引日）。";
+  }
+  ["market", "limit", "stop"].forEach(function(t){ var b = el("button", null, TYPE[t]); b.type = "button"; b.dataset.t = t; b.onclick = function(){ setType(t); }; sel.append(b); });
+  var qRow = el("label", "small fld"); qRow.append(el("span", null, "数量" + (defaults.held > 0 ? "（保有 " + qfmt(k, r.s, defaults.held) + "）" : "")), qty);
+  var grid = el("div", "fgrid"); grid.append(qRow, pxRow);
+  f.append(sel, grid, hint);
+  var ex = null;
+  if (side === "buy") { ex = exitInputs(r.st, r.tg, true); f.append(ex.box); }
+  var go = el("button", "act " + (side === "buy" ? "buy" : "sell"), (side === "buy" ? "買い" : "売り") + "注文の確認へ");
+  go.type = "button";
+  go.onclick = function(){
+    msg.textContent = "";
+    var q = +qty.value; q = frac ? Math.floor(q * 10000) / 10000 : Math.floor(q);
+    if (!(q > 0)) { msg.textContent = "数量を入れてほしい。"; return; }
+    var o = {k: k, s: r.s, side: side, type: type, q: q, cu: cu};
+    if (type !== "market") { o.px = +pxIn.value; if (!(o.px > 0)) { msg.textContent = "価格を入れてほしい。"; return; } }
+    if (ex) { var e = readExit(ex.st, ex.tg, msg); if (!e) return; e.on = ex.on.checked;
+      if (e.on && e.st == null && e.tg == null) { msg.textContent = "自動売却には損切りか利確の価格が必要。"; return; }
+      var ref = type === "market" ? r.cl : o.px;
+      if (e.on && e.st != null && ref != null && e.st >= ref) { msg.textContent = "損切り価格が想定約定価格以上になっている。"; return; }
+      if (e.on && e.tg != null && ref != null && e.tg <= ref) { msg.textContent = "利確価格が想定約定価格以下になっている。"; return; }
+      o.auto = e.on; o.st = e.st; o.tg = e.tg; }
+    showConfirm(o, r, msg);
+  };
+  f.append(go, msg); setType("market");
+  return f;
+}
+
+function preview(o, r){
+  var B = book(), rate = rateOf(o.cu), fee = feeOf(o.k), est = o.type === "market" ? r.cl : o.px;
+  var h = holdingOf(o.k, o.s, B), heldNow = h ? h.q : 0, P = {B: B, rate: rate, est: est, fee: fee, h: h};
+  if (!rate) { P.err = "この通貨（" + o.cu + "）の為替レートがない。"; return P; }
+  if (est == null) { P.err = "価格データがまだない。明朝の更新後に注文できる。"; return P; }
+  var gross = o.q * est * rate;
+  P.gross = gross; P.feeYen = gross * fee; P.buyPower = B.cash - B.reserved;
+  if (o.side === "buy") {
+    P.total = gross + P.feeYen;
+    if (P.total > P.buyPower + 1e-6) P.err = "買付余力が足りない（必要 約" + yen(P.total) + "、余力 約" + yen(P.buyPower) + "）。";
+    P.cashAfter = B.cash - P.total; P.powerAfter = P.buyPower - P.total;
+    P.qAfter = heldNow + o.q; P.avgAfter = ((h ? h.avg * h.q : 0) + o.q * est) / P.qAfter;
+    P.equityAfter = B.equity - P.feeYen;
+    P.weight = gross / Math.max(1, P.equityAfter);
+    if (o.auto && o.st != null) P.lossAtStop = -((est - o.st) * o.q * rate + P.feeYen + o.q * o.st * rate * fee);
+    if (o.auto && o.tg != null) P.gainAtTarget = (o.tg - est) * o.q * rate - P.feeYen - o.q * o.tg * rate * fee;
+  } else {
+    var avail = heldQty(o.k, o.s, B);
+    if (o.q > avail + 1e-9) P.err = "売れる数量（保有から注文中の売りを除く）は " + qfmt(o.k, o.s, avail) + "。";
+    P.total = gross - P.feeYen; P.cashAfter = B.cash + P.total; P.powerAfter = P.buyPower + P.total;
+    P.qAfter = Math.max(0, heldNow - o.q);
+    if (h) P.realized = P.total - (h.cost / h.q) * o.q;
+    P.equityAfter = B.equity - P.feeYen;
+  }
+  return P;
+}
+
+function qfmt(k, s, q){ return fracOf(k, s) ? (+q).toFixed(4) : String(Math.round(q)); }
+
+function showConfirm(o, r, msgEl){
+  var P = preview(o, r), sheet = $("sheet"), body = $("sheetbody");
+  body.innerHTML = "";
+  var buy = o.side === "buy", cu = o.cu;
+  var head = el("div", "shead " + (buy ? "buy" : "sell"));
+  head.append(el("b", null, (buy ? "買い" : "売り") + "・" + TYPE[o.type]), el("span", null, o.s + "　" + (r.n || "")));
+  body.append(head);
+  var t = el("dl", "conf num");
+  function line(k, v, cls){ t.append(el("dt", null, k)); t.append(el("dd", cls || null, v)); }
+  function chg(a, b, fmt){ return fmt(a) + " → " + fmt(b); }
+  line("数量", qfmt(o.k, o.s, o.q) + (fracOf(o.k, o.s) ? "" : " 株"));
+  line("価格", o.type === "market" ? "成行（次の取引日の始値）" : money(o.px, cu) + "（" + TYPE[o.type] + "、取消まで有効・最長" + ORDER_DAYS + "取引日）");
+  line("想定約定価格", money(P.est, cu) + (o.type === "market" ? "（前日終値。実際は始値で変わる）" : ""));
+  if (!P.err || P.gross != null) {
+    line("約定代金", (cu === "JPY" ? "" : money(o.q * P.est, cu) + " ≈ ") + yen(P.gross) + (cu === "JPY" ? "" : "（" + cu + "/円 " + P.rate + "）"));
+    line("手数料（仮定 " + (P.fee * 100).toFixed(2) + "%）", yen(P.feeYen));
+    line(buy ? "受渡金額（概算）" : "受取金額（概算）", yen(P.total));
+    line("現金", chg(P.B.cash, P.cashAfter, yen));
+    line("買付余力", chg(P.buyPower, P.powerAfter, yen), P.powerAfter < 0 ? "neg" : null);
+    line("保有数量", chg(P.h ? P.h.q : 0, P.qAfter, function(v){ return qfmt(o.k, o.s, v); }));
+    if (buy) {
+      line("平均取得単価", money(P.h ? P.h.avg : null, cu) + " → " + money(P.avgAfter, cu));
+      line("資産に占める割合", (P.weight * 100).toFixed(1) + "%");
+      if (P.lossAtStop != null) line("損切り " + money(o.st, cu) + " で売れた場合", yen(P.lossAtStop, true) + "（資産の " + signPct(P.lossAtStop / P.B.equity) + "）", "neg");
+      if (P.gainAtTarget != null) line("利確 " + money(o.tg, cu) + " で売れた場合", yen(P.gainAtTarget, true) + "（資産の " + signPct(P.gainAtTarget / P.B.equity) + "）", "pos");
+      if (!o.auto) line("自動売却", "なし");
+    } else if (P.realized != null) line("想定確定損益", yen(P.realized, true), P.realized >= 0 ? "pos" : "neg");
+    line("評価額", chg(P.B.equity, P.equityAfter, yen));
+  }
+  body.append(t);
+  var err = el("div", "small warnmsg", P.err || ""); err.hidden = !P.err; body.append(err);
+  body.append(el("div", "small", "金額は前日終値と現在の為替での見込み。約定価格・手数料・為替は実際と異なる。デモ取引で、実際の注文は出ない。"));
+  var row = el("div", "sbtns"), back = el("button", "mini", "戻る"), ok = el("button", "act " + (buy ? "buy" : "sell"), "注文を確定");
+  back.type = ok.type = "button"; ok.disabled = !!P.err;
+  back.onclick = closeConfirm;
+  ok.onclick = function(){ ok.disabled = true; commitOrder(o, msgEl).then(closeConfirm, function(){ ok.disabled = false; }); };
+  row.append(back, ok); body.append(row);
+  sheet.hidden = false; document.body.classList.add("modal");
+  $("sheet").querySelector(".sheetcard").scrollTop = 0;
+  setTimeout(function(){ (P.err ? back : ok).focus({preventScroll: true}); }, 0);
+}
+function closeConfirm(){ $("sheet").hidden = true; document.body.classList.remove("modal"); }
+
+function commitOrder(o, msgEl){
+  if (!demo.db || !demo.owner) return Promise.reject();
+  var L = listOf(o.k), body = {k: o.k, s: o.s, side: o.side, type: o.type, q: o.q, cu: o.cu, asof: L.asof, fx: rateOf(o.cu), placedAt: new Date().toISOString(), status: "open"};
+  if (o.type !== "market") body.px = o.px;
+  if (o.side === "buy") { body.auto = !!o.auto; body.st = o.st == null ? null : o.st; body.tg = o.tg == null ? null : o.tg; }
+  msgEl.textContent = "送信中…";
+  var acct = demo.account ? Promise.resolve() : demo.db.doc("demo/account").set({capital: CAPITAL, started: new Date().toISOString().slice(0, 10)});
+  return acct.then(function(){ return demo.db.collection("demo/account/orders").add(body); })
+    .then(function(){ msgEl.textContent = (o.side === "buy" ? "買い" : "売り") + "注文（" + TYPE[o.type] + "）を受け付けた。約定は毎朝の更新後に反映される。"; },
+      function(e){ msgEl.textContent = e && e.code === "quota_exceeded" ? "保存容量の上限に達した。リセットしてほしい。" : "保存できなかった（" + (e && e.code || "error") + "）。"; throw e; });
+}
+
+function readExit(stEl, tgEl, msgEl){
+  var st = stEl.value === "" ? null : +stEl.value, tg = tgEl.value === "" ? null : +tgEl.value;
+  if ((st != null && !(st > 0)) || (tg != null && !(tg > 0))) { msgEl.textContent = "価格は正の数で入れてほしい。"; return false; }
+  if (st != null && tg != null && st >= tg) { msgEl.textContent = "損切り価格は利確価格より低くしてほしい。"; return false; }
+  return {st: st, tg: tg};
+}
+function exitInputs(st, tg, on){
+  var box = el("div", "exits");
+  function num(label, v){ var l = el("label", "small"), i = el("input"); i.type = "number"; i.inputMode = "decimal"; i.min = "0"; i.step = "any";
+    i.value = v == null ? "" : +(+v).toPrecision(6); l.append(label, i); box.append(l); return i; }
+  var a = num("損切り価格", st), b = num("利確価格", tg);
+  var cl = el("label", "small chk"), c = el("input"); c.type = "checkbox"; c.checked = on; cl.append(c, " 約定後、損切り・利確で自動売却"); box.append(cl);
+  return {box: box, st: a, tg: b, on: c};
+}
+function exitForm(h){
+  var w = el("div", "oform"), x = h.x || {}, ex = exitInputs(x.st, x.tg, !!x.on), msg = el("div", "small"), go = el("button", "act", "自動売却の設定を保存");
+  go.type = "button";
+  go.onclick = function(){ var e = readExit(ex.st, ex.tg, msg); if (!e) return;
+    if (ex.on.checked && e.st == null && e.tg == null) { msg.textContent = "自動売却には損切りか利確の価格が必要。"; return; }
+    go.disabled = true; msg.textContent = "保存中…";
+    demo.db.doc("demo/account/exits/" + exitKey(h.k, h.s)).set({k: h.k, s: h.s, on: ex.on.checked, st: e.st, tg: e.tg, setAt: new Date().toISOString()})
+      .then(function(){ go.disabled = false; msg.textContent = "保存した。次に始まる取引日から有効。"; }, function(err){ go.disabled = false; msg.textContent = "保存できなかった（" + (err && err.code || "error") + "）。"; }); };
+  w.append(el("div", "small", h.s + " の自動売却（全数量）"), ex.box, go, msg);
+  return w;
+}
+
+/* ---- favourites ---- */
+function isFav(s){ return !!demo.watch[safeId(s)]; }
+function toggleFav(s, btn){
+  if (!demo.db || !demo.owner) return;
+  var id = safeId(s), ref = demo.db.doc("demo/account/watch/" + id);
+  if (btn) btn.disabled = true;
+  var p = isFav(s) ? ref.delete() : (Object.keys(demo.watch).length >= FAV_MAX ? Promise.reject({code: "limit"}) : ref.set({s: s, addedAt: new Date().toISOString()}));
+  p.then(function(){ if (btn) btn.disabled = false; }, function(e){ if (btn) btn.disabled = false; demo.note = e && e.code === "limit" ? "お気に入りは " + FAV_MAX + " 銘柄まで。" : "お気に入りを保存できなかった。"; render(); });
+}
+function starBtn(s){
+  var on = isFav(s), b = el("button", "star" + (on ? " on" : ""), on ? "★" : "☆");
+  b.type = "button"; b.setAttribute("aria-label", s + (on ? " をお気に入りから外す" : " をお気に入りに追加")); b.setAttribute("aria-pressed", on);
+  b.hidden = !(demo.state === "ready" && demo.owner);
+  b.onclick = function(e){ e.stopPropagation(); toggleFav(s, b); };
+  return b;
+}
+
+/* ---- demo account panel ---- */
+function renderDemo(){
+  var box = $("demo"); box.innerHTML = "";
+  if (demo.state === "off") { box.append(el("div", "small", "この表示ではデモトレードを使えない。claude.ai にログインしてこのページを開くと使える。")); return; }
+  if (demo.state === "loading") { box.append(el("div", "small", demo.note || "記録を読み込み中…")); return; }
+  var B = book(); setTimeout(function(){ persistFills(B); }, 0);
+  var g = el("div", "ptop num");
+  function cell(k, v, c){ var d = el("div"); d.append(el("div", "k", k), el("div", "val" + (c || ""), v)); g.append(d); }
+  function cls(v){ return v > 0 ? " pos" : v < 0 ? " neg" : ""; }
+  var pl = B.equity - B.cap;
+  cell("評価額", yen(B.equity)); cell("損益", yen(pl, true), cls(pl)); cell("損益率", signPct(pl / B.cap), cls(pl));
+  cell("現金", yen(B.cash)); cell("買付余力", yen(B.cash - B.reserved)); cell("確定損益", yen(B.realized, true), cls(B.realized));
+  box.append(g);
+  if (demo.note) box.append(el("div", "small warnmsg", demo.note));
+  if (demo.local) box.append(el("div", "small", "記録はこの端末のブラウザにだけ保存される。別の端末とは共有されず、ブラウザのデータを消すと消える。"));
+  if (!demo.owner) box.append(el("div", "small", "閲覧のみ。注文できるのはページの所有者だけ。"));
+
+  function table(title, list, cols, empty){
+    box.append(el("h4", null, title));
+    if (!list.length) { box.append(el("div", "small", empty || "なし")); return; }
+    var t = el("table", "st num"), h = el("tr"), th = el("thead");
+    cols.forEach(function(c){ h.append(el("th", null, c[0])); }); th.append(h); t.append(th);
+    var tb = el("tbody");
+    list.forEach(function(x){ var tr = el("tr"); cols.forEach(function(c){ var v = c[1](x); var td = el("td", v[1] || null); if (v[0] instanceof Node) td.append(v[0]); else td.textContent = v[0]; tr.append(td); }); tb.append(tr); });
+    t.append(tb); box.append(t);
+  }
+  table("保有中（" + B.holdings.length + "）", B.holdings, [
+    ["銘柄・数量", function(h){ var w = el("span"); w.append(el("b", null, h.s), document.createTextNode(" ×" + qfmt(h.k, h.s, h.q)));
+      w.append(el("div", "chg", h.x && h.x.on ? "自動 " + (h.x.st != null ? "損" + price(h.x.st) : "") + (h.x.tg != null ? " 利" + price(h.x.tg) : "") : "自動売却なし")); return [w]; }],
+    ["取得/現在", function(h){ var w = el("span"); w.append(document.createTextNode(money(h.avg, h.cu) + " / " + money(h.px, h.cu)));
+      var dc = dayChg({cl: h.px, pc: h.pc}); if (dc != null) w.append(el("div", "chg" + (dc > 0 ? " up" : dc < 0 ? " down" : ""), "前日比 " + signPct(dc))); return [w]; }],
+    ["損益", function(h){ return [yen(h.pnl, true) + "\n" + signPct(h.pnl / h.cost), h.pnl > 0 ? "pos pre" : h.pnl < 0 ? "neg pre" : "pre"]; }],
+    ["", function(h){ if (!demo.owner) return [""]; var b = el("button", "mini", state.sell === h.k + ":" + h.s ? "閉じる" : "操作"); b.type = "button";
+      b.onclick = function(){ state.sell = state.sell === h.k + ":" + h.s ? null : h.k + ":" + h.s; render(); }; return [b]; }]],
+    "保有はない。銘柄を開いて「買い注文」から始める。");
+  B.holdings.forEach(function(h){
+    if (state.sell !== h.k + ":" + h.s) return;
+    var r = rowOf(h.k, h.s) || {s: h.s, cl: h.px, cu: h.cu, n: ""};
+    var wrap = el("div", "opbox"); wrap.append(el("h4", null, h.s + " を売る"));
+    wrap.append(orderForm(h.k, r, "sell", {q: qfmt(h.k, h.s, heldQty(h.k, h.s, B)), held: h.q}));
+    wrap.append(el("h4", null, h.s + " の自動売却"), exitForm(h));
+    box.append(wrap);
+  });
+  table("注文中（" + B.pending.length + "）", B.pending, [
+    ["銘柄", function(o){ return [o.s]; }],
+    ["売買", function(o){ return [(o.side === "buy" ? "買" : "売") + "・" + TYPE[o.type || "market"], o.side === "buy" ? "pos" : "neg"]; }],
+    ["数量/価格", function(o){ return [qfmt(o.k, o.s, o.q) + (o.type && o.type !== "market" ? " @" + price(o.px) : "")]; }],
+    ["注文日", function(o){ return [(o.placedAt || "").slice(5, 10)]; }],
+    ["", function(o){ if (!demo.owner) return [""]; var b = el("button", "mini", "取消"); b.type = "button";
+      b.onclick = function(){ b.disabled = true; demo.db.doc("demo/account/orders/" + o.id).update({status: "cancelled"}).catch(function(){ b.disabled = false; }); }; return [b]; }]]);
+  table("決済の履歴（新しい順・最大30件）", B.hist.slice(0, 30), [
+    ["銘柄", function(x){ return [x.s]; }],
+    ["約定日", function(x){ return [x.d.slice(5)]; }],
+    ["理由", function(x){ return [{stop: "損切り", target: "利確", manual: "手動"}[x.why] || x.why]; }],
+    ["損益", function(x){ return [yen(x.pnl, true) + "（" + signPct(x.pct) + "）", x.pnl > 0 ? "pos" : x.pnl < 0 ? "neg" : ""]; }]]);
+  var det = el("details", "sub"); det.append(el("summary", null, "注文履歴（すべて・最大50件）"));
+  var lt = el("table", "st num"), lh = el("tr"), lth = el("thead");
+  ["注文日", "銘柄", "内容", "状態"].forEach(function(x){ lh.append(el("th", null, x)); }); lth.append(lh); lt.append(lth);
+  var ltb = el("tbody");
+  B.log.slice(0, 50).forEach(function(x){ var o = x.o, tr = el("tr");
+    tr.append(el("td", null, (o.placedAt || x.f && x.f.d || "").slice(5, 10)), el("td", null, o.s),
+      el("td", null, (o.side === "buy" ? "買" : "売") + "・" + (o.side === "sell" && typeof o.auto === "string" ? "自動" + ({stop: "損切り", target: "利確"}[o.auto] || "") : TYPE[o.type || "market"]) + " " + qfmt(o.k, o.s, o.q) + (o.px ? " @" + price(o.px) : "")),
+      el("td", null, x.st + (x.f ? " " + x.f.d.slice(5) + " @" + price(x.f.p) : "")));
+    ltb.append(tr); });
+  lt.append(ltb); det.append(B.log.length ? lt : el("div", "small", "なし")); box.append(det);
+  box.append(el("div", "small", "仮想資金 " + B.cap.toLocaleString() + " 円で開始" + (demo.account && demo.account.started ? "（" + demo.account.started + "）" : "") + "。成行は注文後に始まる最初の取引日の始値で約定。指値・逆指値は日々の高値・安値がその価格に届いた日に約定し、取消まで有効（最長" + ORDER_DAYS + "取引日）。自動売却は安値が損切り価格以下、または高値が利確価格以上になった日に全数量を売る（同じ日に両方なら損切り優先）。約定は毎朝の更新後にページを開くと反映される。手数料は片道 株 0.1%・暗号資産 0.15% と仮定。円換算は注文時の為替、評価は現在の為替。税金とスプレッドは含まない。"));
+  if (demo.owner) {
+    var rs = el("button", "mini warn", demo.armReset > Date.now() ? "本当にリセットする（記録を全部消す）" : "デモ口座をリセット");
+    rs.type = "button";
+    rs.onclick = function(){
+      if (demo.armReset > Date.now()) { demo.armReset = 0; resetDemo(); }
+      else { demo.armReset = Date.now() + 5000; render(); setTimeout(render, 5100); }
+    };
+    box.append(rs);
+  }
+}
+
+function resetDemo(){
+  var paths = demo.orders.map(function(o){ return "demo/account/orders/" + o.id; })
+    .concat(Object.keys(demo.exits).map(function(id){ return "demo/account/exits/" + id; }));
+  demo.note = "リセット中…"; render();
+  paths.reduce(function(p, path){ return p.then(function(){ return demo.db.doc(path).delete(); }); }, Promise.resolve())
+    .then(function(){ return demo.db.doc("demo/account").set({capital: CAPITAL, started: new Date().toISOString().slice(0, 10)}); })
+    .then(function(){ demo.note = ""; render(); }, function(){ demo.note = "リセットに失敗した。もう一度試してほしい。"; render(); });
+}
+
+function buyBox(r, L, k){
+  var w = el("div");
+  if (demo.state !== "ready" || !demo.owner) return w;
+  var B = book(), h = holdingOf(k, r.s, B);
+  w.append(el("h3", null, "デモトレード"));
+  var q = planQty(r, L);
+  w.append(orderForm(k, r, "buy", {q: q > 0 ? q : (fracOf(k, r.s) ? "0.0001" : "1"), held: h ? h.q : 0}));
+  if (h) {
+    var sb = el("button", "mini", "保有中 " + qfmt(k, r.s, h.q) + "：売り・自動売却の操作へ");
+    sb.type = "button"; sb.onclick = function(){ state.sell = k + ":" + r.s; render(); $("demo").scrollIntoView({behavior: "smooth", block: "start"}); };
+    w.append(sb);
+  }
+  return w;
+}
+
+/* Browser-only store with the same calls the page makes on the claude.ai db: used when the
+   page is served anywhere else (e.g. GitHub Pages). Data stays in this browser only. */
+function localDb(){
+  var KEY = "tradelab-demo-v1", store = {}, subs = [];
+  try { store = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { store = {}; }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(store)); return true; } catch (e) { return false; } }
+  function notify(){ setTimeout(function(){ subs.forEach(function(f){ f(); }); }, 0); }
+  function clone(x){ return x == null ? x : JSON.parse(JSON.stringify(x)); }
+  function snap(path){ var d = store[path]; return {id: path.split("/").pop(), exists: d != null, data: function(){ return clone(d); }, metadata: {fromCache: false, hasPendingWrites: false}}; }
+  function write(fn){ fn(); if (!save()) return Promise.reject({code: "quota_exceeded"}); notify(); return Promise.resolve(); }
+  function doc(path){ return {id: path.split("/").pop(), path: path,
+    get: function(){ return Promise.resolve(snap(path)); },
+    set: function(d){ return write(function(){ store[path] = clone(d); }); },
+    update: function(d){ if (store[path] == null) return Promise.reject({code: "invalid_argument"}); return write(function(){ Object.assign(store[path], clone(d)); }); },
+    delete: function(){ return write(function(){ delete store[path]; }); },
+    onSnapshot: function(next){ var f = function(){ next(snap(path)); }; subs.push(f); setTimeout(f, 0); return function(){ subs.splice(subs.indexOf(f), 1); }; } }; }
+  function coll(path){ return {path: path,
+    doc: function(id){ return doc(path + "/" + (id || Date.now().toString(36) + Math.random().toString(36).slice(2, 8))); },
+    add: function(d){ var r = this.doc(); return r.set(d).then(function(){ return r; }); },
+    onSnapshot: function(next){ var f = function(){
+      var docs = Object.keys(store).filter(function(k){ return k.indexOf(path + "/") === 0 && k.slice(path.length + 1).indexOf("/") < 0; }).sort().map(snap);
+      next({docs: docs, size: docs.length, empty: !docs.length, docChanges: function(){ return []; }, metadata: {fromCache: false, hasPendingWrites: false}}); };
+      subs.push(f); setTimeout(f, 0); return function(){ subs.splice(subs.indexOf(f), 1); }; } }; }
+  return {doc: doc, collection: coll};
+}
+
+function startDemo(){
+  if (!window.claude || !window.claude.use) { demo.local = true; startStore(localDb(), true); return; }
+  var timer = setTimeout(function(){ if (demo.state === "loading") { demo.note = "記録をまだ読み込めない。通信状態を確認してほしい。"; render(); } }, 10000);
+  Promise.all([window.claude.use("db"), window.claude.use("user")]).then(function(x){
+    var db = x[0], user = x[1];
+    clearTimeout(timer);
+    if (!db) { demo.state = "off"; render(); return; }
+    (user ? user.isOwner() : Promise.resolve(false)).then(function(o){ demo.owner = !!o; render(); }, function(){});
+    startStore(db, false);
+  }, function(){ clearTimeout(timer); demo.state = "off"; render(); });
+}
+
+function startStore(db, owner){
+    demo.db = db; if (owner) demo.owner = true;
+    var timer = setTimeout(function(){ if (demo.state === "loading") { demo.note = "記録をまだ読み込めない。通信状態を確認してほしい。"; render(); } }, 10000);
+    var got = {orders: false, account: false, exits: false, watch: false};
+    function ready(){ if (got.orders && got.account && got.exits && got.watch) { clearTimeout(timer); if (demo.state === "loading") demo.note = ""; demo.state = "ready"; } render(); }
+    function fail(e){ clearTimeout(timer); demo.state = "ready"; demo.note = "記録を読めなかった（" + e.code + "）。"; render(); }
+    db.doc("demo/account").onSnapshot(function(s){ demo.account = s.exists ? s.data() : null; if (!s.metadata.fromCache) got.account = true; ready(); }, fail);
+    db.collection("demo/account/exits").onSnapshot(function(s){
+      var m = {}; s.docs.forEach(function(d){ m[d.id] = d.data(); }); demo.exits = m;
+      if (!s.metadata.fromCache) got.exits = true; ready(); }, fail);
+    db.collection("demo/account/watch").onSnapshot(function(s){
+      var m = {}; s.docs.forEach(function(d){ m[d.id] = d.data(); }); demo.watch = m;
+      if (!s.metadata.fromCache) got.watch = true; ready(); }, fail);
+    db.collection("demo/account/orders").onSnapshot(function(s){
+      demo.orders = s.docs.map(function(d){ var o = Object.assign({}, d.data()); o.id = d.id; return o; });
+      if (!s.metadata.fromCache) got.orders = true; ready(); }, fail);
+}
+
+function planBox(r, L){
+  var w = el("div"); w.append(el("h3", null, "取引計画の目安（オニールの売買規則。翌営業日の始値付近で入る想定）"));
+  var p = el("div", "plan num");
+  function ln(k, v, cls){ var d = el("div", "ln"); d.append(el("span", null, k)); d.append(el("b", cls || null, v)); p.append(d); }
+  if (r.st == null || r.cl == null) { p.append(el("div", null, "値幅データ不足のため計算できない")); w.append(p); return w; }
+  var unit = r.cl - r.st, cu = r.cu || "USD", fx = rateOf(cu) || opt.fx;
+  ln("基準価格（終値）", money(r.cl, cu));
+  ln("損切り目安（終値 −" + pct(cfg.stop_pct) + "）", money(r.st, cu), "bad");
+  ln("利確目安（終値 +" + pct(cfg.target_pct) + "）", money(r.tg, cu), "good");
+  ln("保有期限", cfg.max_hold + " 営業日（約3か月）で手仕舞い");
+  var budget = opt.cap * opt.risk / 100, frac = fracOf(L.key || "", r.s), qty = planQty(r, L);
+  ln("数量の目安", qty > 0 ? (frac ? qty.toFixed(4) : qty + " 株") : "0（資金に対して1単位の損失幅が大きすぎる）");
+  if (qty > 0) {
+    ln("必要資金", "約 " + Math.round(qty * r.cl * fx).toLocaleString() + " 円");
+    ln("損切り時の損失", "約 −" + Math.round(qty * unit * fx).toLocaleString() + " 円", "bad");
+  }
+  w.append(p);
+  w.append(el("div", "small", "損失上限 " + Math.round(budget).toLocaleString() + " 円（資金 " + opt.cap.toLocaleString() + " 円 × " + opt.risk + "%）" + (cu === "JPY" ? "" : "、" + cu + "/円 " + fx + " で換算") + "。手数料・税・為替変動は含まない。"));
+  return w;
+}
+
+function renderStats(){
+  var box = $("stats"); box.innerHTML = "";
+  var S = (D.stats || {})[state.tab];
+  if (!S || !S.rules) { box.append(el("div", "small", "データなし")); return; }
+  box.append(el("div", "small", "期間 " + S.from + "〜" + S.to + "、" + S.symbols + " 銘柄。シグナルの翌日始値で入り、損切り（−" + pct(S.stop_pct) + "）・利確（+" + pct(S.target_pct) + "）・" + S.max_hold + "営業日のいずれかで手仕舞い。往復コスト " + (S.cost * 100).toFixed(1) + "% を差し引いた。"));
+  var t = el("table", "st num"), h = el("thead"), hr = el("tr");
+  ["ルール", "取引数", "勝率", "平均損益(R)"].forEach(function(x){ hr.append(el("th", null, x)); }); h.append(hr); t.append(h);
+  var NAME = {BASE: "比較: どの日でも入る", TT: "TT 合格の日", BO: SIGN.BO, PP: SIGN.PP, PB: SIGN.PB, VCP: SIGN.VCP, "TT+SIG": "TT 合格 かつ シグナルあり"};
+  var tb = el("tbody"), base = S.rules.BASE ? S.rules.BASE.avg_r : null;
+  ["BASE", "TT", "BO", "PP", "PB", "VCP", "TT+SIG"].forEach(function(k){
+    var v = S.rules[k]; if (!v) return; var tr = el("tr");
+    tr.append(el("td", null, NAME[k]), el("td", null, v.n.toLocaleString()), el("td", null, v.win == null ? "–" : Math.round(v.win * 100) + "%"));
+    var c = el("td", v.avg_r == null ? "" : k !== "BASE" && base != null ? (v.avg_r > base ? "pos" : "neg") : "", v.avg_r == null ? "–" : (v.avg_r > 0 ? "+" : "") + v.avg_r.toFixed(2));
+    tr.append(c); tb.append(tr);
+  });
+  t.append(tb); box.append(t);
+  box.append(el("div", "small", "R は1回の損失上限を1とした損益。+0.10R は、損失上限1万円なら1回あたり平均+1,000円に当たる。緑は「どの日でも入る」より良く、赤は悪い。現在の構成銘柄で過去を見ているため、上場廃止・除外銘柄が入らず成績は良く出やすい（生存者バイアス）。将来の成績を保証しない。"));
+}
+
+function renderPaper(){
+  var box = $("paper"); box.innerHTML = "";
+  var P = (D.paper || {})[state.tab];
+  if (!P) { box.append(el("div", "small", "データなし")); return; }
+  var S = P.summary, C = S.closed, yen = opt.cap * opt.risk / 100;
+  function sr(v){ return v == null ? "–" : (v > 0 ? "+" : "") + v.toFixed(2) + "R"; }
+  function cls(v){ return v == null ? "" : v > 0 ? " pos" : v < 0 ? " neg" : ""; }
+  box.append(el("div", "small", "ランキングでシグナルが出た上位10銘柄（同じ銘柄の保有中は除く）を、毎日自動で売買したと仮定した記録。取引計画の目安どおり、翌営業日の始値で入り、損切り・利確・" + cfg.max_hold + "営業日で手仕舞う。実際の注文はしていない。記録開始 " + (S.started || "–") + "。"));
+  var g = el("div", "ptop num");
+  function cell(k, v, c){ var d = el("div"); d.append(el("div", "k", k), el("div", "val" + (c || ""), v)); g.append(d); }
+  cell("決済済み", C.n + " 件"); cell("勝率", C.win == null ? "–" : Math.round(C.win * 100) + "%"); cell("平均", sr(C.avg), cls(C.avg));
+  cell("合計", sr(C.sum), cls(C.sum)); cell("円換算", (C.sum >= 0 ? "+" : "−") + Math.round(Math.abs(C.sum * yen)).toLocaleString() + "円", cls(C.sum)); cell("保有中/待機", S.open + " / " + S.pending);
+  box.append(g);
+  box.append(el("div", "small", "円換算は 1R = " + Math.round(yen).toLocaleString() + " 円（資金と損失上限の設定から）。往復コストを差し引いた値。市場条件 M 合格日のシグナルに限ると 決済 " + S.closedM.n + " 件・平均 " + sr(S.closedM.avg) + "。"));
+  function table(title, list, cols){
+    if (!list.length) return;
+    box.append(el("h4", null, title));
+    var t = el("table", "st num"), h = el("tr"), th = el("thead");
+    cols.forEach(function(c){ h.append(el("th", null, c[0])); }); th.append(h); t.append(th);
+    var tb = el("tbody");
+    list.forEach(function(x){ var tr = el("tr"); cols.forEach(function(c){ var v = c[1](x); tr.append(el("td", v[1] || null, v[0])); }); tb.append(tr); });
+    t.append(tb); box.append(t);
+  }
+  var WHY = {stop: "損切り", target: "利確", time: "期限"};
+  table("保有中・待機（" + P.live.length + "）", P.live, [
+    ["銘柄", function(x){ return [x.s]; }],
+    ["シグナル日", function(x){ return [x.d.slice(5)]; }],
+    ["買値", function(x){ return [x.ep == null ? "翌始値" : price(x.ep)]; }],
+    ["損切り/利確", function(x){ return [x.sp == null ? "–" : price(x.sp) + " / " + price(x.tp)]; }],
+    ["含み", function(x){ return [x.r == null ? "–" : sr(x.r), cls(x.r).trim()]; }]]);
+  table("直近の決済（最大40件）", P.done, [
+    ["銘柄", function(x){ return [x.s]; }],
+    ["決済日", function(x){ return [x.xd.slice(5)]; }],
+    ["理由", function(x){ return [WHY[x.why] || x.why]; }],
+    ["日数", function(x){ return [String(x.bars)]; }],
+    ["損益", function(x){ return [sr(x.r), cls(x.r).trim()]; }]]);
+  if (!P.live.length && !P.done.length) box.append(el("div", "small", "まだ記録がない。シグナルの出た銘柄が現れた日から記録が始まる。"));
+}
+
+function initSettings(){
+  var cap = $("cap"), risk = $("risk"), fx = $("fx");
+  cap.value = opt.cap; risk.value = opt.risk; fx.value = opt.fx;
+  $("fxnote").textContent = D.fx ? "米ドル円の既定値は " + D.fx.asof + " の終値 " + D.fx.usdjpy + "。この端末にだけ保存する。" : "為替データを取得できなかった。米ドル円を手入力してほしい。";
+  function save(){
+    opt.cap = Math.max(0, +cap.value || 0); opt.risk = Math.min(10, Math.max(0.1, +risk.value || 1));
+    var f = +fx.value; if (f > 0 && (!D.fx || f !== D.fx.usdjpy)) { opt.fx = f; opt.fxManual = true; } else if (D.fx) { opt.fx = D.fx.usdjpy; opt.fxManual = false; }
+    try { localStorage.setItem("opt", JSON.stringify(opt)); } catch (e) {}
+    render();
+  }
+  [cap, risk, fx].forEach(function(i){ i.addEventListener("change", save); });
+}
+
+function rowItem(r, k, L, rankText, opts){
+  var li = el("li", (r.cand ? "cand " : "") + "hasstar"), open = state.open === k + ":" + r.s;
+  var b = el("button", "row"); b.type = "button"; b.setAttribute("aria-expanded", open);
+  b.append(el("span", "rank num", rankText));
+  var id = el("span", "id"), sy = el("div", "sym", r.s);
+  if (r.cand) sy.append(el("span", "tag", "候補"));
+  id.append(sy, el("div", "nm", (r.n || "") + (r.sec && r.sec !== "crypto" ? "・" + r.sec : "")));
+  var pr = el("div", "pr num"), dc = dayChg(r);
+  pr.append(document.createTextNode(money(r.cl, r.cu || "USD") + " "));
+  if (dc != null) pr.append(el("span", dc > 0 ? "pos" : dc < 0 ? "neg" : "", signPct(dc)));
+  id.append(pr);
+  var cr = el("div", "crit");
+  L.crit.forEach(function(c, i){ var s = el("span", r.p[i] === "1" ? "y" : "x", c); s.title = c + (r.p[i] === "1" ? " 合格" : " 不合格"); cr.append(s); });
+  var fired = L.sigs.filter(function(g, i){ return r.g[i] === "1"; });
+  if (fired.length) { cr.append(el("span", "sep")); fired.forEach(function(g){ var s = el("span", "g", g); s.title = SIGN[g] + " 発生"; cr.append(s); }); }
+  id.append(cr);
+  var side = el("span", "side"), sc = el("div", "score num", String(r.sc));
+  sc.append(el("small", null, "/" + L.max)); side.append(sc);
+  if (opts && opts.chg) side.append(opts.chg);
+  if (opts && opts.listName) side.append(el("div", "chg", opts.listName));
+  b.append(id, side);
+  b.onclick = function(){ state.open = open ? null : k + ":" + r.s; render(); };
+  var head = el("div", "rowwrap"); head.append(b, starBtn(r.s));
+  li.append(head); if (open) li.append(detail(r, L, k));
+  return li;
+}
+
+function renderFav(){
+  var list = $("list"); list.innerHTML = "";
+  var q = state.q.trim(), Q = q.toUpperCase(), ql = q.toLowerCase();
+  var NAMES = {us: "米国株", crypto: "暗号資産", watch: "お気に入り枠"};
+  if (q) {
+    var hits = allRows().filter(function(x){ return x.r.s.toLowerCase().indexOf(ql) >= 0 || (x.r.n || "").toLowerCase().indexOf(ql) >= 0; });
+    hits.sort(function(a, b){ var ea = a.r.s.toUpperCase() === Q ? 0 : a.r.s.toUpperCase().indexOf(Q) === 0 ? 1 : 2, eb = b.r.s.toUpperCase() === Q ? 0 : b.r.s.toUpperCase().indexOf(Q) === 0 ? 1 : 2; return ea - eb; });
+    $("count").textContent = "検索結果 " + hits.length + " 件" + (hits.length > 30 ? "（上位30件を表示）" : "") + "。☆ でお気に入りに追加。";
+    hits.slice(0, 30).forEach(function(x){ list.append(rowItem(x.r, x.k, D.lists[x.k], "", {listName: NAMES[x.k]})); });
+    var exact = hits.some(function(x){ return x.r.s.toUpperCase() === Q; });
+    var tickerish = /^[A-Z0-9^][A-Z0-9.\-=^]{0,19}$/.test(Q) && (!hits.length || /[0-9.\-=^]/.test(Q));
+    if (!exact && tickerish) {
+      var li = el("li", "addnew"), w = el("div", "small");
+      w.append(el("b", null, Q), document.createTextNode(demo.local ? " は一覧にない。お気に入りには追加できるが、公開版で価格を取得するにはリポジトリの watch.txt に銘柄コードを書く必要がある。" : " は一覧にない。お気に入りに追加すると、明朝の更新から価格と判定を取得する（Yahoo Finance の銘柄コード。例: 7203.T、SOFI、ETH-USD）。"));
+      var ab = el("button", "act", isFav(Q) ? "追加済み（★）" : "☆ " + Q + " をお気に入りに追加"); ab.type = "button"; ab.disabled = isFav(Q) || demo.state !== "ready" || !demo.owner;
+      ab.onclick = function(){ toggleFav(Q, ab); };
+      li.append(w, ab); list.append(li);
+    }
+    if (!hits.length && !tickerish) list.append(el("li", "empty", "該当する銘柄がない。"));
+    return;
+  }
+  var favs = Object.keys(demo.watch).map(function(id){ return demo.watch[id]; }).sort(function(a, b){ return a.addedAt < b.addedAt ? -1 : 1; });
+  $("count").textContent = demo.state !== "ready" ? "お気に入りを読み込み中…" : "お気に入り " + favs.length + " / " + FAV_MAX + " 銘柄。上の欄で検索して ☆ で追加する。";
+  if (demo.state === "off") { list.append(el("li", "empty", "お気に入りは claude.ai にログインしてこのページを開くと使える。")); return; }
+  if (demo.state === "ready" && !favs.length) { list.append(el("li", "empty", "まだお気に入りがない。上の欄で銘柄コードか名前を検索してほしい。")); return; }
+  var fails = {}; ((D.lists.watch || {}).fails || []).forEach(function(f){ fails[f.s] = f.why; });
+  favs.forEach(function(f){
+    var x = findRow(f.s);
+    if (x) { list.append(rowItem(x.r, x.k, D.lists[x.k], "★", {listName: NAMES[x.k]})); return; }
+    var li = el("li", "hasstar"), head = el("div", "rowwrap"), b = el("div", "row");
+    var id = el("span", "id"); id.append(el("div", "sym", f.s), el("div", "nm", fails[f.s] ? "取得できなかった。銘柄コードを確認してほしい（Yahoo Finance の表記）。" :
+      demo.local ? "この公開版では一覧外の銘柄は自動取得しない。リポジトリの watch.txt に追加すると翌朝から取得する。" : "価格と判定は次回の更新（毎朝 7:13 頃）から表示される。"));
+    b.append(el("span", "rank num", "★"), id, el("span", "side"));
+    head.append(b, starBtn(f.s)); li.append(head); list.append(li);
+  });
+}
+
+function render(){
+  var fav = state.tab === "fav", L = fav ? D.lists.us : D.lists[state.tab], max = L.max;
+  $("hdate").textContent = L.asof + " 終値";
+  var tabs = $("tabs"); tabs.innerHTML = "";
+  keys.forEach(function(k){
+    var b = el("button", null, k === "fav" ? "★ お気に入り" : D.lists[k].label); b.setAttribute("role", "tab"); b.id = "tab-" + k; b.type = "button";
+    b.setAttribute("aria-selected", k === state.tab);
+    b.onclick = function(){ state.tab = k; state.open = null; state.limit = 40; state.filter = "all"; state.q = ""; $("q").value = ""; try { localStorage.setItem("tab", k); } catch (e) {} render(); };
+    tabs.append(b);
+  });
+  ["markets", "chips", "paperbox", "statbox", "rules"].forEach(function(id){ $(id).hidden = fav; });
+  $("q").placeholder = fav ? "銘柄を検索して追加（例: NVDA、トヨタ、7203.T）" : "銘柄コード・名称で絞り込み";
+  var note = $("note");
+  if (fav) { note.hidden = true; renderFav(); renderDemo(); $("foot").textContent = "お気に入りは最大 " + FAV_MAX + " 銘柄。S&P 500 と主要暗号資産以外の銘柄は、毎朝の更新で値動きの条件（N・S・L・DOW・TT）とシグナルだけを判定する（L は S&P 500 銘柄の中での順位）。条件に合致した銘柄の一覧で、売買の推奨ではない。データは Yahoo Finance 由来。"; return; }
+  var mk = $("markets"); mk.innerHTML = "";
+  L.markets.forEach(function(m){
+    var d = el("div", "mk"); d.append(el("span", "name", m.label));
+    d.append(el("span", "desc", "トレンド " + TREND[m.trend] + "・" + m.bars + "日 / 200日平均より" + (m.above ? "上" : "下")));
+    d.append(el("span", "pill " + (m.pass ? "ok" : "ng"), m.pass ? "合格" : "不合格")); mk.append(d);
+  });
+  note.hidden = L.marketPass;
+  note.textContent = "市場全体の条件（M）が不合格のため、候補は0件。下の順位は条件の合格数による並びで、売買の候補ではない。";
+
+  var nCand = L.rows.filter(function(r){ return r.cand; }).length;
+  var nNear = L.rows.filter(function(r){ return r.g.indexOf("1") >= 0; }).length;
+  var chips = $("chips"); chips.innerHTML = "";
+  [["all", "すべて " + L.rows.length], ["near", "シグナルあり " + nNear], ["cand", "候補 " + nCand]].forEach(function(c){
+    var b = el("button", null, c[1]); b.id = "chip-" + c[0]; b.type = "button"; b.setAttribute("aria-pressed", state.filter === c[0]);
+    b.onclick = function(){ state.filter = c[0]; state.limit = 40; render(); }; chips.append(b);
+  });
+
+  var q = state.q.trim().toLowerCase();
+  var rows = L.rows.map(function(r, i){ return [r, i + 1]; }).filter(function(x){
+    var r = x[0];
+    if (state.filter === "cand" && !r.cand) return false;
+    if (state.filter === "near" && r.g.indexOf("1") < 0) return false;
+    return !q || r.s.toLowerCase().indexOf(q) >= 0 || r.n.toLowerCase().indexOf(q) >= 0;
+  });
+  $("count").textContent = rows.length + " 銘柄を表示（点数の多い順、同点はシグナル数、次に相対的強さの高い順）";
+  var list = $("list"); list.innerHTML = "";
+  if (!rows.length) {
+    var msg = state.filter === "cand" && !q ? "全条件とシグナルを満たす候補は今日はない。" : "該当する銘柄がない。条件を変えてほしい。";
+    list.append(el("li", "empty", msg));
+  }
+  rows.slice(0, state.limit).forEach(function(x){
+    list.append(rowItem(x[0], state.tab, L, String(x[1]), {chg: change(x[0], x[1], L)}));
+  });
+  if (rows.length > state.limit) {
+    var li = el("li"), more = el("button", "more", "さらに表示（残り " + (rows.length - state.limit) + "）");
+    more.type = "button"; more.onclick = function(){ state.limit += 60; render(); }; li.append(more); list.append(li);
+  }
+
+  var dl = $("ruledl"); dl.innerHTML = "";
+  var R = {
+    C: "直近四半期の希薄化後EPSが前年同期比 +" + pct(cfg.c_min_eps_growth) + " 以上",
+    A: "年次EPSの年平均成長率 +" + pct(cfg.a_min_eps_cagr) + " 以上、毎年増益、ROE " + pct(cfg.a_min_roe) + " 以上",
+    N: "終値が52週高値から " + pct(cfg.n_max_below_high) + " 以内",
+    S: "直近50日の上昇日出来高 ÷ 下落日出来高が " + cfg.s_min_updown_volume + " 以上",
+    L: "相対的強さ（直近12か月の騰落率、直近3か月を2倍に加重）が対象内の上位 " + (100 - cfg.l_min_rs_rank) + "% 以内",
+    DOW: "高値と安値を切り上げるダウ理論の上昇トレンド。終値が直近の押し安値を割ると終了",
+    TT: "トレンドテンプレート（M.ミネルヴィニ）。終値が150日・200日平均より上、50日>150日>200日の並び、200日平均が1か月前より上、52週安値から+30%以上、52週高値から25%以内"
+  };
+  L.crit.forEach(function(c){ dl.append(el("dt", null, c), el("dd", null, R[c])); });
+  dl.append(el("dt", null, "BO"), el("dd", null, "ブレイクアウト: 終値が直近" + cfg.bo_lookback + "日の高値を超え、出来高が50日平均の" + cfg.bo_volume + "倍以上"));
+  dl.append(el("dt", null, "PP"), el("dd", null, "ポケットピボット（モラレス、カッチャー）: 上昇日の出来高が直近" + cfg.pp_lookback + "日の下落日出来高をすべて上回り、終値が50日平均より上"));
+  dl.append(el("dt", null, "PB"), el("dd", null, "押し目（L.コナーズ）: 終値が200日平均より上で、RSI(2)が" + cfg.pb_rsi + "未満"));
+  dl.append(el("dt", null, "VCP"), el("dd", null, "値幅の収縮（簡易版）: 直近10日の値幅がATR(50)の" + cfg.vcp_range_atr + "倍以内、ATR(10)がATR(50)の" + cfg.vcp_atr_ratio + "倍以下、52週高値から" + Math.round(cfg.vcp_near_high * 100) + "%以内"));
+  dl.append(el("dt", null, "点数"), el("dd", null, "質の条件（" + L.crit.join("・") + "）の合格数に、BO・PP・PB・VCPのどれかが出ていれば1点を加える。満点 " + L.max));
+  dl.append(el("dt", null, "候補"), el("dd", null, "質の条件をすべて満たし、シグナルが1つ以上出て、市場条件 M が合格の銘柄"));
+  dl.append(el("dt", null, "M"), el("dd", null, "市場指数がダウ理論の上昇トレンドにあり、200日移動平均より上。不合格の日は候補を出さない"));
+  if (L.crit.indexOf("C") >= 0) dl.append(el("dt", null, "I"), el("dd", null, "機関投資家の保有動向。データを取得できないため未評価"));
+  else dl.append(el("dt", null, "注"), el("dd", null, "暗号資産には決算がないため、値動きの条件だけで判定する。数量は小数第4位まで"));
+  renderStats();
+  renderPaper();
+  renderDemo();
+  $("foot").textContent = "対象: " + L.universe + "（評価不能 " + L.failed + " 銘柄を除く）。作成 " + D.generated + " JST。" +
+    "条件に合致した銘柄の一覧で、売買の推奨ではない。シグナルの過去成績は「過去データでのシグナル成績」を参照。CAN SLIM の決算条件は過去検証できていない。データは Yahoo Finance 由来で、誤りや遅延を含みうる。";
+}
+$("q").addEventListener("input", function(e){ state.q = e.target.value; state.limit = 40; render(); var i = $("q"); i.focus(); });
+$("sheetbg").addEventListener("click", closeConfirm);
+document.addEventListener("keydown", function(e){ if (e.key === "Escape" && !$("sheet").hidden) closeConfirm(); });
+initSettings();
+render();
+startDemo();
+})();
+</script>
