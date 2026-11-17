@@ -71,7 +71,7 @@
 
 - 2026-11-17 夜、依頼者の希望で「ページ内で完結する ID・パスワードの口座」に切り替えることになった（Supabase、1人1口座 1,000 万円、招待コード付きの自己登録）。
   - コードは対応済み（`contest.build_supabase`、ページのログイン画面と `remoteDb`）。`contest/config.json` の `source` を `supabase` にし、`supabase_url`・`anon_key` を入れると切り替わる。
-  - 依頼者の作業待ち: `contest/SUPABASE.md` の手順（プロジェクト作成、メール確認オフ、`supabase.sql` 実行、GitHub Secrets に `SUPABASE_SERVICE_KEY`）。
+  - 2026-11-18 01:10 JST 切り替え済み: Supabase プロジェクト `uvtfueomknvzvtqnhlpv`（シドニー）、メール確認オフ、`supabase.sql` 実行済み、`contest/config.json` を supabase に変更。GitHub Secrets の `SUPABASE_SERVICE_KEY` は依頼者が登録（Claude からは確認できない。毎朝の実行記録の "contest:" 行で分かる）。
   - 切り替え後、Google フォーム方式は使わない（フォームとシートは依頼者が消してよい）。
 
 ## 8. 未決事項（依頼者の判断待ち）

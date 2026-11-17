@@ -1,7 +1,9 @@
 {
   "enabled": true,
-  "csv_url": "https://docs.google.com/spreadsheets/d/e/2PACX-1vQDdxHPArgRbma-IqyI4mbV8d-npmnmFkQNVyqPefx3IIOFt06wfUGK3q5_HCMFFM1RzTFQEA8-m4sv/pub?gid=2100502842&single=true&output=csv",
-  "form_url": "https://docs.google.com/forms/d/e/1FAIpQLSdMSoLAwymgX48FMmompnPAAor2AM1c7Zzrz06L4iGHMw7iHw/viewform",
+  "source": "supabase",
+  "supabase_url": "https://uvtfueomknvzvtqnhlpv.supabase.co",
+  "anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2dGZ1ZW9ta252enZ0cW5obHB2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5MTM2NDcsImV4cCI6MjExMDQ4OTY0N30.wWlo6e-aeKd_7brur_0RGS706rOOwZSZ_ZRVtHi27zY",
+  "auth_domain": "sgk-tools.github.io",
   "capital": 10000000,
   "start": "2026-11-18",
   "tz": "Asia/Tokyo"
