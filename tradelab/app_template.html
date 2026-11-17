@@ -441,7 +441,7 @@ function bar(k, s, i){ var B = D.opens[k]; return {o: B.o[s][i], h: B.h[s][i], l
 
 function book(){
   var cap = demo.account && demo.account.capital || CAPITAL, cash = cap, pos = {}, realized = 0, hist = [], pending = [], persist = [], autos = [], reserved = 0, log = [];
-  var live = demo.orders.filter(function(o){ return o.status !== "cancelled" && o.status !== "expired"; });
+  var live = demo.orders.filter(function(o){ return o.status !== "cancelled" && o.status !== "expired" && o.status !== "prestart"; });
   live.forEach(function(o){ if (!o.fill) { var f = findFill(o); if (f && f.expired) { o._expired = f.expired; persist.push(o); } else if (f) { o._fill = f; persist.push(o); } } });
   var ev = live.filter(function(o){ return o.fill || o._fill; });
   function fd(o){ return (o.fill || o._fill).d; }
@@ -488,7 +488,7 @@ function book(){
     if (o.side === "buy") { var r = rowOf(o.k, o.s), px = o.type && o.type !== "market" ? o.px : (r && r.cl || 0); reserved += o.q * px * o.fx * (1 + feeOf(o.k)); }
   } });
   demo.orders.forEach(function(o){
-    var st = o.status === "cancelled" ? "取消" : (o.status === "expired" || o._expired) ? "期限切れ" : o._void ? "無効（保有なし）" : (o.fill || o._fill) ? "約定" : "注文中";
+    var st = o.status === "prestart" ? "大会開始前（無効）" : o.status === "cancelled" ? "取消" : (o.status === "expired" || o._expired) ? "期限切れ" : o._void ? "無効（保有なし）" : (o.fill || o._fill) ? "約定" : "注文中";
     log.push({o: o, st: st, f: o.fill || o._fill || null});
   });
   autos.forEach(function(o){ if (!demo.orders.some(function(x){ return x.id === o.id; })) log.push({o: o, st: "約定", f: o.fill}); });
@@ -522,6 +522,14 @@ function persistFills(B){
   });
 }
 
+/* "MM-DD HH:MM" in Japan time */
+function jstTime(iso){
+  if (!iso) return "";
+  var t = new Date(iso); if (isNaN(t)) return String(iso).slice(5, 16);
+  var p = {}; new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Tokyo", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false})
+    .formatToParts(t).forEach(function(x){ p[x.type] = x.value; });
+  return p.month + "-" + p.day + " " + (+p.hour % 24 < 10 ? "0" : "") + (+p.hour % 24) + ":" + p.minute;
+}
 function yen(v, sign){ return v == null ? "–" : (sign && v > 0 ? "+" : v < 0 ? "−" : "") + Math.round(Math.abs(v)).toLocaleString() + "円"; }
 function signPct(v){ return v == null || !isFinite(v) ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v * 100).toFixed(2) + "%"; }
 function dayChg(r){ return r && r.cl != null && r.pc ? r.cl / r.pc - 1 : null; }
@@ -754,7 +762,7 @@ function renderDemo(){
     ["銘柄", function(o){ return [o.s]; }],
     ["売買", function(o){ return [(o.side === "buy" ? "買" : "売") + "・" + TYPE[o.type || "market"], o.side === "buy" ? "pos" : "neg"]; }],
     ["数量/価格", function(o){ return [qfmt(o.k, o.s, o.q) + (o.type && o.type !== "market" ? " @" + price(o.px) : "")]; }],
-    ["注文日", function(o){ return [(o.placedAt || "").slice(5, 10)]; }],
+    ["注文日時", function(o){ return [jstTime(o.placedAt)]; }],
     ["", function(o){ if (!demo.owner) return [""]; var b = el("button", "mini", "取消"); b.type = "button";
       b.onclick = function(){ b.disabled = true; demo.db.doc("demo/account/orders/" + o.id).update({status: "cancelled"}).catch(function(){ b.disabled = false; }); }; return [b]; }]]);
   table("決済の履歴（新しい順・最大30件）", B.hist.slice(0, 30), [
@@ -764,10 +772,10 @@ function renderDemo(){
     ["損益", function(x){ return [yen(x.pnl, true) + "（" + signPct(x.pct) + "）", x.pnl > 0 ? "pos" : x.pnl < 0 ? "neg" : ""]; }]]);
   var det = el("details", "sub"); det.append(el("summary", null, "注文履歴（すべて・最大50件）"));
   var lt = el("table", "st num"), lh = el("tr"), lth = el("thead");
-  ["注文日", "銘柄", "内容", "状態"].forEach(function(x){ lh.append(el("th", null, x)); }); lth.append(lh); lt.append(lth);
+  ["注文日時", "銘柄", "内容", "状態"].forEach(function(x){ lh.append(el("th", null, x)); }); lth.append(lh); lt.append(lth);
   var ltb = el("tbody");
   B.log.slice(0, 50).forEach(function(x){ var o = x.o, tr = el("tr");
-    tr.append(el("td", null, (o.placedAt || x.f && x.f.d || "").slice(5, 10)), el("td", null, o.s),
+    tr.append(el("td", null, o.placedAt ? jstTime(o.placedAt) : (x.f && x.f.d || "").slice(5)), el("td", null, o.s),
       el("td", null, (o.side === "buy" ? "買" : "売") + "・" + (o.side === "sell" && typeof o.auto === "string" ? "自動" + ({stop: "損切り", target: "利確"}[o.auto] || "") : TYPE[o.type || "market"]) + " " + qfmt(o.k, o.s, o.q) + (o.px ? " @" + price(o.px) : "")),
       el("td", null, x.st + (x.f ? " " + x.f.d.slice(5) + " @" + price(x.f.p) : "")));
     ltb.append(tr); });
@@ -853,6 +861,8 @@ function remoteDb(sb, uid){
   function snap(id, data){ return {id: id, exists: data != null, data: function(){ return data == null ? undefined : JSON.parse(JSON.stringify(data)); }, metadata: {fromCache: false, hasPendingWrites: false}}; }
   function qsnap(docs){ return {docs: docs, size: docs.length, empty: !docs.length, docChanges: function(){ return []; }, metadata: {fromCache: false, hasPendingWrites: false}}; }
   function keyOf(s){ var x = findRow(s); return x ? x.k : ""; }
+  /* orders placed before the contest start (00:00 JST) do not count, as on the server */
+  var startUtc = D.contest && D.contest.start ? new Date(D.contest.start + "T00:00:00+09:00").toISOString() : "";
   var views = {
     orders: function(){
       var cancelled = {};
@@ -860,7 +870,8 @@ function remoteDb(sb, uid){
       return cache.orders.filter(function(r){ return r.side !== "cancel"; }).map(function(r){
         return snap(String(r.id), {k: r.k || keyOf(r.symbol), s: r.symbol, side: r.side, type: r.type, q: r.qty, px: r.px, st: r.st, tg: r.tg,
           auto: !!r.auto, cu: r.cu || curOf(r.k || keyOf(r.symbol), r.symbol), fx: r.fx || rateOf(r.cu || "USD") || opt.fx,
-          asof: r.asof || r.created_at.slice(0, 10), placedAt: r.created_at, status: cancelled[r.id] ? "cancelled" : "open"});
+          asof: r.asof || r.created_at.slice(0, 10), placedAt: r.created_at,
+          status: startUtc && r.created_at < startUtc ? "prestart" : cancelled[r.id] ? "cancelled" : "open"});
       });
     },
     exits: function(){ return cache.exits.map(function(r){ var k = r.k || keyOf(r.symbol); return snap(exitKey(k, r.symbol), {k: k, s: r.symbol, on: !!r.enabled, st: r.st, tg: r.tg, setAt: r.set_at}); }); },
