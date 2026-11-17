@@ -13,4 +13,4 @@ __all__ = [
     "BacktestResult", "backtest", "compute_metrics",
     "STRATEGIES", "make_signal", "grid_search", "walk_forward",
 ]
-__version__ = "0.6.0"
+__version__ = "0.7.0"

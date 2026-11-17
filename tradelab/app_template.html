@@ -173,6 +173,11 @@ dl.conf dt{color:var(--ink2)} dl.conf dd{margin:0;text-align:right;font-weight:6
 .sbtns{display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:12px}
 .sbtns button{padding:12px;font-size:15px}
 body.modal{overflow:hidden}
+.seg2.four{grid-template-columns:repeat(4,1fr);margin:10px 0}
+a.act.formlink{display:block;text-align:center;text-decoration:none;margin:10px 0;padding:12px;background:var(--accent);color:var(--surface);border-radius:10px;font-weight:700}
+table.rank tr.click{cursor:pointer}
+table.rank td:nth-child(2){font-weight:700}
+.cplayer{display:flex;flex-direction:column;gap:6px;padding:4px 0 8px}
 .card h4{font-size:12px;color:var(--ink2);margin:12px 0 0;font-weight:600}
 table.st thead th{color:var(--ink2);font-weight:600;border-top:0}
 td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad);font-weight:700}
@@ -191,7 +196,8 @@ td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad);font-weight:70
   <div class="seg" role="tablist" id="tabs"></div>
   <section class="markets" id="markets" aria-label="市場の状態"></section>
   <div class="note" id="note" hidden></div>
-  <section class="card" aria-labelledby="demoh"><h2 class="ch" id="demoh">デモトレード（仮想資金）</h2><div id="demo"></div></section>
+  <section class="card" id="contest" hidden></section>
+  <section class="card" id="democard" aria-labelledby="demoh"><h2 class="ch" id="demoh">デモトレード（仮想資金）</h2><div id="demo"></div></section>
   <details class="card" id="setbox"><summary>資金・1回の許容損失・売買単位（数量の目安に使う）</summary>
     <div class="set">
       <label>資金（円）<input id="cap" type="number" inputmode="numeric" min="0" step="10000"></label>
@@ -201,7 +207,7 @@ td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad);font-weight:70
     </div>
     <div class="small" id="fxnote"></div>
   </details>
-  <div class="tools">
+  <div class="tools" id="tools">
     <div class="chips" id="chips"></div>
     <input id="q" type="search" inputmode="search" autocomplete="off" placeholder="銘柄コード・名称で絞り込み" aria-label="銘柄コード・名称で絞り込み">
     <div class="count" id="count"></div>
@@ -223,7 +229,7 @@ td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad);font-weight:70
 "use strict";
 var D = JSON.parse(document.getElementById("data").textContent);
 Object.keys(D.lists).forEach(function(k){ D.lists[k].key = k; });
-var keys = Object.keys(D.lists).filter(function(k){ return k !== "watch"; }).concat(["fav"]), cfg = D.config;
+var keys = Object.keys(D.lists).filter(function(k){ return k !== "watch"; }).concat(D.contest ? ["contest"] : []).concat(["fav"]), cfg = D.config;
 var state = {tab: keys[0], filter: "all", q: "", open: null, limit: 40};
 var SIGN = {BO: "ブレイクアウト", PP: "ポケットピボット", PB: "押し目（RSI2）", VCP: "収縮（VCP）"};
 var opt = {cap: 300000, risk: 1, fx: D.fx ? D.fx.usdjpy : 150, jpLot: 100};
@@ -1003,17 +1009,95 @@ function renderFav(){
   });
 }
 
+/* ---- friends' contest (orders via Google Form, computed on the server side) ---- */
+var CPER = {week: "週間", month: "月間", year: "年間", all: "累計"};
+function lineChart(series){
+  var W = 340, H = 110, L = 4, R = 4, T = 8, B = 16, n = series.length;
+  var vals = series.map(function(x){ return x[1]; }), lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  var x = function(i){ return L + (W - L - R) * i / Math.max(1, n - 1); }, y = function(v){ return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+  var s = svg("svg", {viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "評価額の推移"});
+  var cap = D.contest.capital; if (cap >= lo && cap <= hi) s.append(svg("line", {x1: L, x2: W - R, y1: y(cap), y2: y(cap), stroke: "var(--axis)", "stroke-dasharray": "3 3"}));
+  s.append(svg("path", {d: "M" + series.map(function(p, i){ return x(i).toFixed(1) + "," + y(p[1]).toFixed(1); }).join("L"), fill: "none", stroke: "var(--series)", "stroke-width": 2}));
+  s.append(svg("text", {x: L, y: H - 3}, series[0][0].slice(5)));
+  s.append(svg("text", {x: W - R, y: H - 3, "text-anchor": "end"}, series[n - 1][0].slice(5)));
+  return s;
+}
+function renderContest(){
+  var C = D.contest, box = $("contest"); box.innerHTML = "";
+  box.append(el("h2", "ch", "仲間内の大会（初期資金 " + (C.capital ? (C.capital / 10000).toLocaleString() + "万円" : "–") + "）"));
+  if (C.error) { box.append(el("div", "small warnmsg", "今朝の集計に失敗した: " + C.error)); }
+  if (C.form) { var a = el("a", "act formlink", "注文フォームを開く ↗"); a.href = C.form; a.target = "_blank"; a.rel = "noopener"; box.append(a); }
+  if (!C.players) return;
+  box.append(el("div", "small", "開始 " + (C.start || "–") + "・集計 " + C.asof + "。週間は " + C.starts.week + "（月曜）から、月間は " + C.starts.month + " から、年間は " + C.starts.year + " から。"));
+  var per = state.cper || "week", seg = el("div", "seg2 four");
+  Object.keys(CPER).forEach(function(k){ var b = el("button", null, CPER[k]); b.type = "button"; b.setAttribute("aria-pressed", per === k); b.onclick = function(){ state.cper = k; render(); }; seg.append(b); });
+  box.append(seg);
+  var ps = C.players.slice().sort(function(a, b){ return b.ret[per] - a.ret[per]; });
+  var t = el("table", "st num rank"), h = el("tr"), th = el("thead");
+  ["順位", "名前", CPER[per] + "利益率", "評価額"].forEach(function(x){ h.append(el("th", null, x)); }); th.append(h); t.append(th);
+  var tb = el("tbody");
+  if (!ps.length) { var tr0 = el("tr"), td0 = el("td", null, "まだ参加者がいない。フォームから最初の注文を出すと参加になる。"); td0.colSpan = 4; tr0.append(td0); tb.append(tr0); }
+  ps.forEach(function(p, i){
+    var tr = el("tr", "click"), r = p.ret[per];
+    tr.append(el("td", null, String(i + 1)), el("td", null, p.name), el("td", r > 0 ? "pos" : r < 0 ? "neg" : "", signPct(r)), el("td", null, yen(p.equity)));
+    tr.onclick = function(){ state.cplayer = state.cplayer === p.name ? null : p.name; render(); };
+    tb.append(tr);
+    if (state.cplayer === p.name) { var dt = el("tr"), dd = el("td"); dd.colSpan = 4; dd.append(contestPlayer(p)); dt.append(dd); tb.append(dt); }
+  });
+  t.append(tb); box.append(t);
+  box.append(el("div", "small", "名前を押すと保有と売買が見られる。利益率は期間の初めの評価額（前営業日の終値ベース）からの増減。"));
+  var det = el("details", "sub"); det.append(el("summary", null, "注文の受付状況（新しい順・最大50件）"));
+  var ot = el("table", "st num"), oh = el("tr"), oth = el("thead");
+  ["番号", "名前", "受付", "内容", "状態"].forEach(function(x){ oh.append(el("th", null, x)); }); oth.append(oh); ot.append(oth);
+  var otb = el("tbody"), ST = {filled: "約定", open: "注文中", cancelled: "取消", expired: "失効", rejected: "無効"};
+  (C.orders || []).slice(0, 50).forEach(function(o){
+    var tr = el("tr"), what = o.side === "cancel" ? "取消依頼" : (o.side === "buy" ? "買" : "売") + "・" + TYPE[o.type || "market"] + " " + o.s + " " + o.q + (o.px ? " @" + price(o.px) : "");
+    var st = (o.side === "cancel" && o.st === "filled") ? "受付" : (ST[o.st] || o.st);
+    tr.append(el("td", null, String(o.id)), el("td", null, o.p), el("td", null, o.t), el("td", null, what),
+      el("td", o.st === "rejected" ? "neg" : null, st + (o.fd ? " " + o.fd.slice(5) + " @" + price(o.fp) : "") + (o.why ? "（" + o.why + "）" : "")));
+    otb.append(tr);
+  });
+  ot.append(otb); det.append((C.orders || []).length ? ot : el("div", "small", "なし")); box.append(det);
+  if (C.unverified) box.append(el("div", "small", "合言葉が一致しなかった注文 " + C.unverified + " 件は無視した。"));
+  var rl = el("details", "sub"); rl.append(el("summary", null, "大会のルール"));
+  rl.append(el("div", "small", "注文はフォームで出す（ニックネーム・合言葉・銘柄コード・売買・種類・数量など）。対象は米国株・日本株・ETF・暗号資産の一覧にある銘柄。成行は受付後に始まる最初の取引日の始値、指値・逆指値は日足の高値・安値がその価格に届いた日に約定し、" + 60 + "取引日で失効。買いに損切り・利確の価格を付けると、届いた日に全数量を自動で売る。日本株は100株単位、米国株・ETFは1株、暗号資産は0.0001単位。約定時に資金が足りない買いは無効。手数料は片道 0.1%（暗号資産 0.15%）。米ドル建ては約定日の米ドル円で円換算する。取消はフォームで「取消」と注文番号を送る。"));
+  box.append(rl);
+}
+function contestPlayer(p){
+  var w = el("div", "cplayer");
+  w.append(el("div", "small", "現金 " + yen(p.cash) + "・確定損益 " + yen(p.realized, true)));
+  if (p.series && p.series.length > 1) w.append(lineChart(p.series));
+  var t = el("table", "st num"), h = el("tr"), th = el("thead");
+  ["保有", "数量", "取得/現在", "損益"].forEach(function(x){ h.append(el("th", null, x)); }); th.append(h); t.append(th);
+  var tb = el("tbody");
+  p.hold.forEach(function(x){ var tr = el("tr"); tr.append(el("td", null, x.s), el("td", null, String(x.q)), el("td", null, money(x.avg, x.cu) + " / " + money(x.cl, x.cu)), el("td", x.pnl > 0 ? "pos" : x.pnl < 0 ? "neg" : "", yen(x.pnl, true))); tb.append(tr); });
+  if (!p.hold.length) { var tr0 = el("tr"), td0 = el("td", null, "保有なし"); td0.colSpan = 4; tr0.append(td0); tb.append(tr0); }
+  t.append(tb); w.append(t);
+  if (p.trades.length) {
+    var t2 = el("table", "st num"), h2 = el("tr"), th2 = el("thead");
+    ["決済日", "銘柄", "理由", "損益"].forEach(function(x){ h2.append(el("th", null, x)); }); th2.append(h2); t2.append(th2);
+    var tb2 = el("tbody");
+    p.trades.slice(0, 15).forEach(function(x){ var tr = el("tr"); tr.append(el("td", null, x.d.slice(5)), el("td", null, x.s), el("td", null, {stop: "損切り", target: "利確", manual: "売り"}[x.why] || x.why), el("td", x.pnl > 0 ? "pos" : x.pnl < 0 ? "neg" : "", yen(x.pnl, true) + "（" + signPct(x.pct) + "）")); tb2.append(tr); });
+    t2.append(tb2); w.append(t2);
+  }
+  return w;
+}
+
 function render(){
-  var fav = state.tab === "fav", L = fav ? D.lists.us : D.lists[state.tab], max = L.max;
+  var fav = state.tab === "fav", cont = state.tab === "contest", L = (fav || cont) ? D.lists.us : D.lists[state.tab], max = L.max;
   $("hdate").textContent = L.asof + " 終値";
   var tabs = $("tabs"); tabs.innerHTML = "";
   keys.forEach(function(k){
-    var b = el("button", null, k === "fav" ? "★" : D.lists[k].label); if (k === "fav") b.setAttribute("aria-label", "お気に入り"); b.setAttribute("role", "tab"); b.id = "tab-" + k; b.type = "button";
+    var b = el("button", null, k === "fav" ? "★" : k === "contest" ? "大会" : D.lists[k].label); if (k === "fav") b.setAttribute("aria-label", "お気に入り"); b.setAttribute("role", "tab"); b.id = "tab-" + k; b.type = "button";
     b.setAttribute("aria-selected", k === state.tab);
     b.onclick = function(){ state.tab = k; state.open = null; state.limit = 40; state.filter = "all"; state.q = ""; $("q").value = ""; try { localStorage.setItem("tab", k); } catch (e) {} render(); };
     tabs.append(b);
   });
-  ["markets", "chips", "paperbox", "statbox", "rules"].forEach(function(id){ $(id).hidden = fav; });
+  ["markets", "chips", "paperbox", "statbox", "rules"].forEach(function(id){ $(id).hidden = fav || cont; });
+  ["tools", "list", "democard", "setbox"].forEach(function(id){ $(id).hidden = cont; });
+  $("contest").hidden = !cont;
+  if (cont) { $("note").hidden = true; renderContest(); $("hdate").textContent = (D.contest.asof || "") + " 時点"; $("foot").textContent = "仲間内の仮想売買の大会。実際の注文は出ない。約定と損益は毎朝の更新で、注文の受付時刻と日足の値動きから自動で計算する。条件に合致した銘柄の一覧と同じく、売買の推奨ではない。"; return; }
   $("q").placeholder = fav ? "銘柄を検索して追加（例: NVDA、トヨタ、7203.T）" : "銘柄コード・名称で絞り込み";
   var note = $("note");
   if (fav) { note.hidden = true; renderFav(); renderDemo(); $("foot").textContent = "お気に入りは最大 " + FAV_MAX + " 銘柄。S&P 500 と主要暗号資産以外の銘柄は、毎朝の更新で値動きの条件（N・S・L・DOW・TT）とシグナルだけを判定する（L は S&P 500 銘柄の中での順位）。条件に合致した銘柄の一覧で、売買の推奨ではない。データは Yahoo Finance 由来。"; return; }

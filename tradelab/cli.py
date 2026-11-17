@@ -298,6 +298,18 @@ def cmd_app(args) -> int:
         previous=load_previous(state), stats=stats, fx=fx, currencies=currencies,
         charts_per_list=args.charts)
     data["failShare"] = {k: round(v, 3) for k, v in shares.items()}
+    from . import contest
+    ccfg = contest.load_config(args.contest)
+    if ccfg.get("enabled") and ccfg.get("csv_url"):
+        try:
+            symbols = {s: k for k, (_, res) in lists.items() if k != "watch" for s in res.table["symbol"]}
+            data["contest"] = contest.build(ccfg, contest.fetch_csv(ccfg["csv_url"]), symbols,
+                                            prices, prices("USDJPY=X")["close"])
+            print(f"contest: {len(data['contest']['players'])} players, "
+                  f"{len(data['contest']['orders'])} orders, unverified {data['contest']['unverified']}")
+        except Exception as exc:       # the ranking pages still publish
+            print(f"WARNING: contest skipped: {exc}", file=sys.stderr)
+            data["contest"] = {"error": str(exc)[:200], "form": ccfg.get("form_url", "")}
     book_path = state / "ledger.json"
     book = paper.load(book_path)
     sc = SwingConfig()
@@ -390,6 +402,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--universe", default="data/universe",
                    help="where the downloaded JPX stock list is kept")
     a.add_argument("--charts", type=int, default=40, help="price charts per list (top N)")
+    a.add_argument("--contest", default="contest/config.json",
+                   help="contest settings (Google Form CSV); disabled when missing")
     a.set_defaults(func=cmd_app)
 
     f = sub.add_parser("fetch", help="download OHLCV data to CSV")
