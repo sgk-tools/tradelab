@@ -37,6 +37,31 @@ MIN_BARS = 253
 
 SP500_URL = ("https://raw.githubusercontent.com/datasets/s-and-p-500-companies/"
              "main/data/constituents.csv")
+JPX_LIST_URL = ("https://www.jpx.co.jp/markets/statistics-equities/misc/"
+                "tvdivq0000001vg2-att/data_j.xls")
+# Major ETFs (index, sector, bond, commodity). Confirm availability at your broker.
+ETF_US = [
+    ("SPY", "S&P 500"), ("VOO", "S&P 500"), ("QQQ", "NASDAQ 100"), ("DIA", "ダウ平均"),
+    ("IWM", "ラッセル2000"), ("VTI", "米国株式全体"), ("VT", "全世界株式"), ("VEA", "先進国株（米国除く）"),
+    ("VWO", "新興国株"), ("EWJ", "日本株"), ("INDA", "インド株"), ("FXI", "中国大型株"),
+    ("XLK", "情報技術"), ("XLF", "金融"), ("XLE", "エネルギー"), ("XLV", "ヘルスケア"),
+    ("XLY", "一般消費財"), ("XLP", "生活必需品"), ("XLI", "資本財"), ("XLB", "素材"),
+    ("XLU", "公益"), ("XLRE", "不動産"), ("XLC", "通信"), ("SMH", "半導体"),
+    ("SOXX", "半導体"), ("IBB", "バイオ"), ("KRE", "地方銀行"), ("ITB", "住宅建設"),
+    ("ARKK", "イノベーション"), ("VIG", "連続増配"), ("VYM", "高配当"), ("SCHD", "高配当"),
+    ("TLT", "米国債20年超"), ("IEF", "米国債7-10年"), ("SHY", "米国債1-3年"), ("LQD", "投資適格社債"),
+    ("HYG", "ハイイールド債"), ("AGG", "米国総合債券"), ("GLD", "金"), ("SLV", "銀"),
+    ("USO", "原油"), ("DBC", "商品"), ("VNQ", "米国REIT"), ("IBIT", "ビットコイン"),
+]
+ETF_JP = [
+    ("1306.T", "TOPIX（NEXT FUNDS）"), ("1348.T", "TOPIX（MAXIS）"), ("1321.T", "日経225（NEXT FUNDS）"),
+    ("1346.T", "日経225（MAXIS）"), ("1591.T", "JPX日経400"), ("1489.T", "日経高配当株50"),
+    ("1478.T", "MSCIジャパン高配当"), ("2644.T", "日本半導体株"), ("1615.T", "東証銀行業"),
+    ("1343.T", "東証REIT"), ("1547.T", "S&P 500（上場）"), ("1655.T", "S&P 500（iシェアーズ）"),
+    ("2558.T", "S&P 500（MAXIS）"), ("1545.T", "NASDAQ 100（NEXT FUNDS）"), ("2631.T", "NASDAQ 100（MAXIS）"),
+    ("2559.T", "全世界株式（MAXIS）"), ("1681.T", "海外新興国株"), ("1540.T", "純金上場信託"),
+    ("1326.T", "SPDRゴールド"), ("2511.T", "外国債券（為替ヘッジなし）"),
+]
 # Major coins. Availability differs per exchange: confirm before trading.
 CRYPTO = ["BTC", "ETH", "XRP", "LTC", "BCH", "XLM", "DOT", "LINK", "SOL",
           "DOGE", "ADA", "AVAX"]
@@ -188,8 +213,31 @@ def score(table: pd.DataFrame, cfg: ScreenConfig, market_pass: bool,
 
 # ---- universe -----------------------------------------------------------------
 
-def load_universe(name: str | None = None, file: str | None = None) -> pd.DataFrame:
-    """Columns: symbol (Yahoo format), name, sector."""
+def parse_jpx_list(raw: pd.DataFrame, market: str = "プライム") -> pd.DataFrame:
+    """Domestic stocks of one TSE market from JPX's listed-company file.
+
+    Columns are found by name so small layout changes do not break it.
+    """
+    def col(word):
+        hits = [c for c in raw.columns if word in str(c)]
+        if not hits:
+            raise ValueError(f"JPX list has no column containing {word!r}")
+        return hits[0]
+    code, name, mkt = col("コード"), col("銘柄名"), col("市場")
+    sector = next((c for c in raw.columns if "33業種区分" in str(c)), None)
+    keep = raw[raw[mkt].astype(str).str.contains(market) & raw[mkt].astype(str).str.contains("内国")]
+    codes = keep[code].astype(str).str.strip().str.replace(r"\.0$", "", regex=True).str.upper()
+    return pd.DataFrame({"symbol": codes + ".T", "name": keep[name].astype(str).str.strip(),
+                         "sector": keep[sector].astype(str) if sector else ""}).reset_index(drop=True)
+
+
+def load_universe(name: str | None = None, file: str | None = None,
+                  cache_dir: str | Path = "data/universe") -> pd.DataFrame:
+    """Columns: symbol (Yahoo format), name, sector.
+
+    jp_prime downloads JPX's list and keeps a copy in ``cache_dir``; when the
+    download fails the saved copy is used.
+    """
     if file:
         syms = [ln.split("#")[0].strip().upper()
                 for ln in Path(file).read_text(encoding="utf-8").splitlines()]
@@ -210,7 +258,29 @@ def load_universe(name: str | None = None, file: str | None = None) -> pd.DataFr
         return pd.DataFrame({
             "symbol": raw["Symbol"].str.strip().str.replace(".", "-", regex=False),
             "name": raw["Security"], "sector": raw["GICS Sector"]})
-    raise ValueError("universe must be 'sp500' or 'crypto', or pass a file")
+    if name == "etf":
+        return pd.DataFrame({"symbol": [s for s, _ in ETF_US + ETF_JP],
+                             "name": [n for _, n in ETF_US + ETF_JP],
+                             "sector": ["米国ETF"] * len(ETF_US) + ["日本ETF"] * len(ETF_JP)})
+    if name == "jp_prime":
+        import io
+
+        import requests
+        saved = Path(cache_dir) / "jp_prime.csv"
+        try:
+            r = requests.get(JPX_LIST_URL, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
+            r.raise_for_status()
+            table = parse_jpx_list(pd.read_excel(io.BytesIO(r.content)))
+            if len(table) < 500:
+                raise ValueError(f"only {len(table)} prime stocks in the JPX list")
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            table.to_csv(saved, index=False)
+            return table
+        except Exception:
+            if saved.exists():
+                return pd.read_csv(saved, dtype=str).fillna("")
+            raise
+    raise ValueError("universe must be 'sp500', 'jp_prime', 'etf' or 'crypto', or pass a file")
 
 
 WATCH_MAX = 50
@@ -264,6 +334,12 @@ def _cached_prices(symbol: str, cache: Path, start: str) -> pd.DataFrame:
     return data
 
 
+def fundamentals_cache_dir(cache_dir: str | Path, today=None) -> Path:
+    """Earnings change once a quarter: keep one download per symbol per ISO week."""
+    today = today or datetime.now(timezone.utc).date()
+    return Path(cache_dir) / "fundamentals-week" / ("%d-W%02d" % today.isocalendar()[:2])
+
+
 def _cached_fundamentals(symbol: str, cache: Path) -> dict:
     path = cache / "fundamentals" / f"{symbol}.json"
     if path.exists():
@@ -306,7 +382,9 @@ def run_screen(universe: pd.DataFrame, cfg: ScreenConfig | None = None,
     cache = Path(cache_dir) / today.isoformat()
     start = (today - timedelta(days=history_days)).isoformat()
     get_prices = price_loader or (lambda s: _cached_prices(s, cache, start))
-    get_fund = fundamentals_loader or (lambda s: _cached_fundamentals(s, cache))
+    # earnings change once a quarter: one download per symbol per ISO week
+    fund_cache = fundamentals_cache_dir(cache_dir, today)
+    get_fund = fundamentals_loader or (lambda s: _cached_fundamentals(s, fund_cache))
 
     market = {label: market_status(get_prices(sym), cfg.dow_swing)
               for label, sym in market_symbols.items()}

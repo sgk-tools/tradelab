@@ -179,41 +179,72 @@ def cmd_screen(args) -> int:
 def cmd_app(args) -> int:
     from datetime import datetime, timedelta, timezone
 
+    from . import ledger as paper
     from .app import build_app_data, load_previous, render_app
     from .screen import (ScreenConfig, _cached_fundamentals, _cached_meta,
-                         _cached_prices, load_universe, parse_watch, run_screen)
-    from . import ledger as paper
+                         _cached_prices, fundamentals_cache_dir, load_universe,
+                         parse_watch, run_screen)
     from .swing import SwingConfig, signal_stats
 
     cfg = ScreenConfig()
     today = datetime.now(timezone.utc).date()
     cache = Path(args.cache) / today.isoformat()
+    fund_cache = fundamentals_cache_dir(args.cache, today)
     history = 1500                     # longer history for the signal record
     start = (today - timedelta(days=history)).isoformat()
+    state = Path(args.state or args.out)
+    markets = set(args.markets.split(","))
 
     def prices(symbol):
         return _cached_prices(symbol, cache, start)
 
     def progress(done, total):
-        if done % 100 == 0 or done == total:
+        if done % 200 == 0 or done == total:
             print(f"  {done}/{total}", file=sys.stderr, flush=True)
 
-    print("screening US stocks (S&P 500)...", file=sys.stderr)
-    us = run_screen(load_universe("sp500"), cfg,
-                    {"S&P 500": "^GSPC", "ダウ工業株": "^DJI", "ダウ輸送株": "^DJT"},
-                    cache_dir=args.cache, workers=args.workers,
-                    universe_name="S&P 500 構成銘柄", progress=progress,
-                    history_days=history)
-    print("screening crypto...", file=sys.stderr)
-    cr = run_screen(load_universe("crypto"), cfg, {"BTC/USD": "BTC-USD"},
-                    use_fundamentals=False, cache_dir=args.cache, workers=args.workers,
-                    universe_name="主要暗号資産 12 銘柄（米ドル建て）",
-                    history_days=history)
-    lists = {"us": ("米国株", us), "crypto": ("暗号資産", cr)}
-    currencies = {}
+    def screen(key, label, universe, market, fundamentals, name):
+        print(f"screening {label} ({len(universe)})...", file=sys.stderr)
+        res = run_screen(universe, cfg, market, use_fundamentals=fundamentals,
+                         cache_dir=args.cache, workers=args.workers, universe_name=name,
+                         progress=progress, history_days=history)
+        share = len(res.failures) / max(1, len(res.table) + len(res.failures))
+        print(f"  {label}: evaluated {len(res.table)} failed {len(res.failures)} ({share:.0%})",
+              file=sys.stderr)
+        return res, share
+
+    lists, currencies, shares = {}, {}, {}
+    if "us" in markets:
+        us, shares["us"] = screen("us", "US stocks", load_universe("sp500"),
+                                  {"S&P 500": "^GSPC", "ダウ工業株": "^DJI", "ダウ輸送株": "^DJT"},
+                                  True, "S&P 500 構成銘柄")
+        if shares["us"] > 0.2:
+            raise ValueError(f"{shares['us']:.0%} of US symbols could not be evaluated; "
+                             "refusing to publish an incomplete ranking")
+        lists["us"] = ("米国株", us)
+    if "jp" in markets:
+        jp, shares["jp"] = screen("jp", "JP prime", load_universe("jp_prime", cache_dir=args.universe),
+                                  {"TOPIX（1306.T）": "1306.T", "日経平均": "^N225"},
+                                  True, "東証プライム（内国株式）")
+        lists["jp"] = ("日本株", jp)
+        currencies["jp"] = {s: "JPY" for s in jp.table["symbol"]}
+    if "etf" in markets:
+        etf, shares["etf"] = screen("etf", "ETF", load_universe("etf"),
+                                    {"S&P 500": "^GSPC", "TOPIX（1306.T）": "1306.T"},
+                                    False, "主要ETF（米国・日本）")
+        lists["etf"] = ("ETF", etf)
+        currencies["etf"] = {s: "JPY" if s.endswith(".T") else "USD" for s in etf.table["symbol"]}
+    if "crypto" in markets:
+        cr, shares["crypto"] = screen("crypto", "crypto", load_universe("crypto"),
+                                      {"BTC/USD": "BTC-USD"}, False,
+                                      "主要暗号資産 12 銘柄（米ドル建て）")
+        lists["crypto"] = ("暗号資産", cr)
+    if not lists:
+        raise ValueError("no market selected")
+
     watch = parse_watch(Path(args.watch).read_text(encoding="utf-8")) if args.watch else []
-    known = set(us.table["symbol"]) | set(us.failures["symbol"]) | \
-        set(cr.table["symbol"]) | set(cr.failures["symbol"])
+    known = set()
+    for _, res in lists.values():
+        known |= set(res.table["symbol"]) | set(res.failures["symbol"])
     extra = [s for s in watch if s not in known]
     if extra:
         print(f"screening {len(extra)} watch-list symbols...", file=sys.stderr)
@@ -226,23 +257,23 @@ def cmd_app(args) -> int:
         uni = pd.DataFrame({"symbol": extra,
                             "name": [metas.get(s, {}).get("name", "") for s in extra],
                             "sector": [metas.get(s, {}).get("exchange", "") for s in extra]})
+        ref = lists["us"][1].table["rs_raw"] if "us" in lists else None
         try:
             wl = run_screen(uni, cfg, {"S&P 500": "^GSPC"}, use_fundamentals=False,
                             cache_dir=args.cache, workers=args.workers,
-                            universe_name="お気に入り（S&P 500・主要暗号資産以外）",
-                            history_days=history, rs_reference=us.table["rs_raw"])
+                            universe_name="お気に入り（一覧外の銘柄）",
+                            history_days=history, rs_reference=ref)
             lists["watch"] = ("お気に入り", wl)
             currencies["watch"] = {s: metas.get(s, {}).get("currency", "USD") for s in extra}
         except ValueError as exc:      # none of them could be evaluated
             print(f"watch list skipped: {exc}", file=sys.stderr)
-    failed_share = len(us.failures) / (len(us.table) + len(us.failures))
-    if failed_share > 0.2:
-        raise ValueError(f"{failed_share:.0%} of US symbols could not be evaluated; "
-                         "refusing to publish an incomplete ranking")
+
     print("replaying swing signals over history...", file=sys.stderr)
     stats = {}
-    for key, res, crypto in (("us", us, False), ("crypto", cr, True)):
-        stats[key] = signal_stats({s: prices(s) for s in res.table["symbol"]}, crypto=crypto)
+    for key, (_, res) in lists.items():
+        if key == "watch":
+            continue
+        stats[key] = signal_stats({s: prices(s) for s in res.table["symbol"]}, crypto=key == "crypto")
     try:
         fxd = prices("USDJPY=X")
         fx = {"usdjpy": round(float(fxd["close"].iloc[-1]), 2),
@@ -257,23 +288,27 @@ def cmd_app(args) -> int:
         except Exception as exc:
             print(f"{cur}JPY unavailable: {exc}", file=sys.stderr)
     data = build_app_data(
-        lists, prices, lambda s: _cached_fundamentals(s, cache),
-        previous=load_previous(args.out), stats=stats, fx=fx, currencies=currencies)
-    book_path = Path(args.out) / "ledger.json"
+        lists, prices, lambda s: _cached_fundamentals(s, fund_cache),
+        previous=load_previous(state), stats=stats, fx=fx, currencies=currencies,
+        charts_per_list=args.charts)
+    data["failShare"] = {k: round(v, 3) for k, v in shares.items()}
+    book_path = state / "ledger.json"
     book = paper.load(book_path)
     sc = SwingConfig()
-    for key in ("us", "crypto"):               # the watch list is not paper-traded
+    paper_keys = [k for k in data["lists"] if k != "watch"]
+    for key in paper_keys:                    # the watch list is not paper-traded
         L = data["lists"][key]
         paper.add_signals(book, key, L["rows"], L["asof"], L["marketPass"])
-    paper.evaluate(book, prices, sc, cost={"us": sc.cost_stock, "crypto": sc.cost_crypto})
-    data["paper"] = {key: paper.for_page(book, key) for key in ("us", "crypto")}
-    paths = render_app(data, args.out)
+    paper.evaluate(book, prices, sc, cost={k: sc.cost_crypto if k == "crypto" else sc.cost_stock
+                                          for k in paper_keys})
+    data["paper"] = {key: paper.for_page(book, key) for key in paper_keys}
+    paths = render_app(data, args.out, state_dir=state)
     paper.save(book, book_path)
     paths["ledger"] = book_path
-    for key, label in (("us", "US"), ("crypto", "crypto")):
+    for key in paper_keys:
         L = data["lists"][key]
         rows = L["rows"]
-        print(f"{label}: as of {L['asof']}  evaluated {len(rows)}  failed {L['failed']}  "
+        print(f"{key}: as of {L['asof']}  evaluated {len(rows)}  failed {L['failed']}  "
               f"market {'PASS' if L['marketPass'] else 'FAIL'}  "
               f"candidates {sum(r['cand'] for r in rows)}  "
               f"top5 {', '.join(r['s'] for r in rows[:5])}")
@@ -341,7 +376,14 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--workers", type=int, default=8)
     a.add_argument("--cache", default="data/cache", help="download cache directory")
     a.add_argument("--watch", help="watch-list file, one Yahoo symbol per line "
-                   "(symbols outside S&P 500 / major crypto are added as a third list)")
+                   "(symbols outside the main lists are added as an extra list)")
+    a.add_argument("--state", help="directory for data.json / ledger.json carried between "
+                   "runs (default: --out)")
+    a.add_argument("--markets", default="us,jp,etf,crypto",
+                   help="comma-separated lists to build: us, jp, etf, crypto")
+    a.add_argument("--universe", default="data/universe",
+                   help="where the downloaded JPX stock list is kept")
+    a.add_argument("--charts", type=int, default=40, help="price charts per list (top N)")
     a.set_defaults(func=cmd_app)
 
     f = sub.add_parser("fetch", help="download OHLCV data to CSV")

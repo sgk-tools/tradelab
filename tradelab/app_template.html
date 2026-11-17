@@ -74,6 +74,7 @@ li.cand .rank{color:var(--good)}
 .crit span{font-size:10px;font-weight:700;line-height:1;padding:3px 5px;border-radius:5px;border:1px solid transparent}
 .crit .y{background:var(--good-soft);color:var(--good)}
 .crit .x{border-color:var(--line);color:var(--muted);text-decoration:line-through}
+.crit .na{border:1px dashed var(--line);color:var(--muted)}
 .side{text-align:right;white-space:nowrap}
 .score{font-size:17px;font-weight:700}
 .score small{font-size:12px;color:var(--muted);font-weight:600}
@@ -109,6 +110,7 @@ footer{font-size:11px;color:var(--muted);line-height:1.6}
 .card summary{font-weight:600;cursor:pointer}
 .set{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
 .set label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--ink2);min-width:0}
+.set select{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:7px 4px;font-size:14px}
 .set input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 8px;font-size:16px}
 .small{font-size:11px;color:var(--muted);margin-top:6px}
 table.st{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
@@ -190,11 +192,12 @@ td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad);font-weight:70
   <section class="markets" id="markets" aria-label="市場の状態"></section>
   <div class="note" id="note" hidden></div>
   <section class="card" aria-labelledby="demoh"><h2 class="ch" id="demoh">デモトレード（仮想資金）</h2><div id="demo"></div></section>
-  <details class="card" id="setbox"><summary>資金と1回の許容損失（数量の目安に使う）</summary>
+  <details class="card" id="setbox"><summary>資金・1回の許容損失・売買単位（数量の目安に使う）</summary>
     <div class="set">
       <label>資金（円）<input id="cap" type="number" inputmode="numeric" min="0" step="10000"></label>
       <label>1回の損失上限（%）<input id="risk" type="number" inputmode="decimal" min="0.1" max="10" step="0.1"></label>
       <label>米ドル円<input id="fx" type="number" inputmode="decimal" min="1" step="0.01"></label>
+      <label>日本株の売買単位<select id="jplot"><option value="100">100株（単元）</option><option value="1">1株（ミニ株）</option></select></label>
     </div>
     <div class="small" id="fxnote"></div>
   </details>
@@ -223,8 +226,8 @@ Object.keys(D.lists).forEach(function(k){ D.lists[k].key = k; });
 var keys = Object.keys(D.lists).filter(function(k){ return k !== "watch"; }).concat(["fav"]), cfg = D.config;
 var state = {tab: keys[0], filter: "all", q: "", open: null, limit: 40};
 var SIGN = {BO: "ブレイクアウト", PP: "ポケットピボット", PB: "押し目（RSI2）", VCP: "収縮（VCP）"};
-var opt = {cap: 300000, risk: 1, fx: D.fx ? D.fx.usdjpy : 150};
-try { var so = JSON.parse(localStorage.getItem("opt") || "null"); if (so) { opt.cap = +so.cap || opt.cap; opt.risk = +so.risk || opt.risk; if (so.fxManual && +so.fx) { opt.fx = +so.fx; opt.fxManual = true; } } } catch (e) {}
+var opt = {cap: 300000, risk: 1, fx: D.fx ? D.fx.usdjpy : 150, jpLot: 100};
+try { var so = JSON.parse(localStorage.getItem("opt") || "null"); if (so) { opt.cap = +so.cap || opt.cap; opt.risk = +so.risk || opt.risk; if (so.jpLot === 1 || so.jpLot === 100) opt.jpLot = so.jpLot; if (so.fxManual && +so.fx) { opt.fx = +so.fx; opt.fxManual = true; } } } catch (e) {}
 try { var saved = localStorage.getItem("tab"); if (saved && keys.indexOf(saved) >= 0) state.tab = saved; } catch (e) {}
 
 var $ = function(id){ return document.getElementById(id); };
@@ -300,7 +303,7 @@ function detail(r, L, k){
   if (dc != null) top.append(el("span", "num " + (dc > 0 ? "pos" : dc < 0 ? "neg" : ""), "前日比 " + signPct(dc)));
   var fs = starBtn(r.s); fs.classList.add("big"); fs.textContent = isFav(r.s) ? "★ お気に入り" : "☆ お気に入りに追加"; top.append(fs);
   box.append(top);
-  L.crit.forEach(function(c, i){ P[c] = r.p[i] === "1"; });
+  L.crit.forEach(function(c, i){ P[c] = r.p[i] === "-" ? null : r.p[i] === "1"; });
   if (ch && ch.c.length > 1) { var a = el("div"); a.append(el("h3", null, "株価（過去1年・終値）"), priceChart(ch)); box.append(a); }
   var g = el("div", "kv");
   if ("C" in P) {
@@ -340,7 +343,7 @@ function planQty(r, L){
   if (r.st == null || r.cl == null || r.cl <= r.st) return 0;
   var fx = rateOf(r.cu || "USD") || opt.fx, frac = fracOf(L.key || "", r.s);
   var qty = Math.min(opt.cap * opt.risk / 100 / ((r.cl - r.st) * fx), opt.cap / (r.cl * fx));
-  return frac ? Math.floor(qty * 10000) / 10000 : Math.floor(qty);
+  return roundLot(L.key || "", r.s, qty);
 }
 
 /* ---- demo trading: orders kept in the artifact's db, fills derived from embedded daily bars ---- */
@@ -405,9 +408,12 @@ function findFill(o){
 }
 function allRows(){ var out = []; Object.keys(D.lists).forEach(function(k){ D.lists[k].rows.forEach(function(r){ out.push({k: k, r: r}); }); }); return out; }
 function rowOf(k, s){ var L = D.lists[k]; if (!L) return null; for (var i = 0; i < L.rows.length; i++) if (L.rows[i].s === s) return L.rows[i]; return null; }
-function findRow(s){ var keys2 = ["us", "crypto", "watch"]; for (var i = 0; i < keys2.length; i++) { var r = rowOf(keys2[i], s); if (r) return {k: keys2[i], r: r}; } return null; }
+function findRow(s){ var keys2 = ["us", "jp", "etf", "crypto", "watch"]; for (var i = 0; i < keys2.length; i++) { var r = rowOf(keys2[i], s); if (r) return {k: keys2[i], r: r}; } return null; }
 function listOf(k){ return D.lists[k]; }
 function fracOf(k, s){ return k === "crypto" || /-USD$/.test(s); }
+/* trading unit: Japanese stocks 100 shares (or 1 with mini stocks), others 1 share, crypto 0.0001 */
+function lotOf(k, s){ if (fracOf(k, s)) return 0.0001; if (/\.T$/.test(s) && k !== "etf") return opt.jpLot || 100; return 1; }
+function roundLot(k, s, q){ var l = lotOf(k, s); return l < 1 ? Math.floor(q * 10000) / 10000 : Math.floor(q / l) * l; }
 
 function safeId(s){ return s.replace(/[^A-Za-z0-9_\-.~:@+]/g, "_"); }
 function exitKey(k, s){ return k + "__" + safeId(s); }
@@ -516,7 +522,7 @@ function orderForm(k, r, side, defaults){
   var sel = el("div", "seg2"), type = "market";
   var qty = el("input"), pxIn = el("input"), msg = el("div", "small");
   [qty, pxIn].forEach(function(i){ i.type = "number"; i.inputMode = "decimal"; i.min = "0"; });
-  qty.step = frac ? "0.0001" : "1"; pxIn.step = "any";
+  qty.step = String(lotOf(k, r.s)); pxIn.step = "any";
   qty.value = defaults.q; qty.setAttribute("aria-label", "数量");
   pxIn.value = r.cl != null ? +(+r.cl).toPrecision(6) : ""; pxIn.setAttribute("aria-label", "価格");
   var pxRow = el("label", "small fld"); pxRow.append(el("span", null, "価格（" + (cu === "JPY" ? "円" : cu) + "）"), pxIn);
@@ -538,8 +544,10 @@ function orderForm(k, r, side, defaults){
   go.type = "button";
   go.onclick = function(){
     msg.textContent = "";
-    var q = +qty.value; q = frac ? Math.floor(q * 10000) / 10000 : Math.floor(q);
+    var q = +qty.value, lot = lotOf(k, r.s);
     if (!(q > 0)) { msg.textContent = "数量を入れてほしい。"; return; }
+    if (lot >= 1 && Math.abs(q / lot - Math.round(q / lot)) > 1e-9) { msg.textContent = "この銘柄は " + lot + " 株単位で注文する（設定で日本株の売買単位を変えられる）。"; return; }
+    q = roundLot(k, r.s, q);
     var o = {k: k, s: r.s, side: side, type: type, q: q, cu: cu};
     if (type !== "market") { o.px = +pxIn.value; if (!(o.px > 0)) { msg.textContent = "価格を入れてほしい。"; return; } }
     if (ex) { var e = readExit(ex.st, ex.tg, msg); if (!e) return; e.on = ex.on.checked;
@@ -709,7 +717,7 @@ function renderDemo(){
   }
   table("保有中（" + B.holdings.length + "）", B.holdings, [
     ["銘柄・数量", function(h){ var w = el("span"); w.append(el("b", null, h.s), document.createTextNode(" ×" + qfmt(h.k, h.s, h.q)));
-      w.append(el("div", "chg", h.x && h.x.on ? "自動 " + (h.x.st != null ? "損" + price(h.x.st) : "") + (h.x.tg != null ? " 利" + price(h.x.tg) : "") : "自動売却なし")); return [w]; }],
+      w.append(el("div", "chg", h.x && h.x.on ? "自動 " + (h.x.st != null ? "損" + money(h.x.st, h.cu) : "") + (h.x.tg != null ? " 利" + money(h.x.tg, h.cu) : "") : "自動売却なし")); return [w]; }],
     ["取得/現在", function(h){ var w = el("span"); w.append(document.createTextNode(money(h.avg, h.cu) + " / " + money(h.px, h.cu)));
       var dc = dayChg({cl: h.px, pc: h.pc}); if (dc != null) w.append(el("div", "chg" + (dc > 0 ? " up" : dc < 0 ? " down" : ""), "前日比 " + signPct(dc))); return [w]; }],
     ["損益", function(h){ return [yen(h.pnl, true) + "\n" + signPct(h.pnl / h.cost), h.pnl > 0 ? "pos pre" : h.pnl < 0 ? "neg pre" : "pre"]; }],
@@ -773,7 +781,7 @@ function buyBox(r, L, k){
   var B = book(), h = holdingOf(k, r.s, B);
   w.append(el("h3", null, "デモトレード"));
   var q = planQty(r, L);
-  w.append(orderForm(k, r, "buy", {q: q > 0 ? q : (fracOf(k, r.s) ? "0.0001" : "1"), held: h ? h.q : 0}));
+  w.append(orderForm(k, r, "buy", {q: q > 0 ? q : lotOf(k, r.s), held: h ? h.q : 0}));
   if (h) {
     var sb = el("button", "mini", "保有中 " + qfmt(k, r.s, h.q) + "：売り・自動売却の操作へ");
     sb.type = "button"; sb.onclick = function(){ state.sell = k + ":" + r.s; render(); $("demo").scrollIntoView({behavior: "smooth", block: "start"}); };
@@ -849,7 +857,8 @@ function planBox(r, L){
   ln("利確目安（終値 +" + pct(cfg.target_pct) + "）", money(r.tg, cu), "good");
   ln("保有期限", cfg.max_hold + " 営業日（約3か月）で手仕舞い");
   var budget = opt.cap * opt.risk / 100, frac = fracOf(L.key || "", r.s), qty = planQty(r, L);
-  ln("数量の目安", qty > 0 ? (frac ? qty.toFixed(4) : qty + " 株") : "0（資金に対して1単位の損失幅が大きすぎる）");
+  var lot = lotOf(L.key || "", r.s);
+  ln("数量の目安", qty > 0 ? (frac ? qty.toFixed(4) : qty + " 株") : "0（資金に対して" + (lot > 1 ? lot + "株" : "1単位") + "の損失幅が大きすぎる）");
   if (qty > 0) {
     ln("必要資金", "約 " + Math.round(qty * r.cl * fx).toLocaleString() + " 円");
     ln("損切り時の損失", "約 −" + Math.round(qty * unit * fx).toLocaleString() + " 円", "bad");
@@ -918,16 +927,16 @@ function renderPaper(){
 }
 
 function initSettings(){
-  var cap = $("cap"), risk = $("risk"), fx = $("fx");
-  cap.value = opt.cap; risk.value = opt.risk; fx.value = opt.fx;
+  var cap = $("cap"), risk = $("risk"), fx = $("fx"), jl = $("jplot");
+  cap.value = opt.cap; risk.value = opt.risk; fx.value = opt.fx; jl.value = String(opt.jpLot);
   $("fxnote").textContent = D.fx ? "米ドル円の既定値は " + D.fx.asof + " の終値 " + D.fx.usdjpy + "。この端末にだけ保存する。" : "為替データを取得できなかった。米ドル円を手入力してほしい。";
   function save(){
-    opt.cap = Math.max(0, +cap.value || 0); opt.risk = Math.min(10, Math.max(0.1, +risk.value || 1));
+    opt.cap = Math.max(0, +cap.value || 0); opt.risk = Math.min(10, Math.max(0.1, +risk.value || 1)); opt.jpLot = +jl.value === 1 ? 1 : 100;
     var f = +fx.value; if (f > 0 && (!D.fx || f !== D.fx.usdjpy)) { opt.fx = f; opt.fxManual = true; } else if (D.fx) { opt.fx = D.fx.usdjpy; opt.fxManual = false; }
     try { localStorage.setItem("opt", JSON.stringify(opt)); } catch (e) {}
     render();
   }
-  [cap, risk, fx].forEach(function(i){ i.addEventListener("change", save); });
+  [cap, risk, fx, jl].forEach(function(i){ i.addEventListener("change", save); });
 }
 
 function rowItem(r, k, L, rankText, opts){
@@ -942,7 +951,7 @@ function rowItem(r, k, L, rankText, opts){
   if (dc != null) pr.append(el("span", dc > 0 ? "pos" : dc < 0 ? "neg" : "", signPct(dc)));
   id.append(pr);
   var cr = el("div", "crit");
-  L.crit.forEach(function(c, i){ var s = el("span", r.p[i] === "1" ? "y" : "x", c); s.title = c + (r.p[i] === "1" ? " 合格" : " 不合格"); cr.append(s); });
+  L.crit.forEach(function(c, i){ var m = r.p[i], s = el("span", m === "1" ? "y" : m === "-" ? "na" : "x", c); s.title = c + (m === "1" ? " 合格" : m === "-" ? " 判定不能（決算データなし）" : " 不合格"); cr.append(s); });
   var fired = L.sigs.filter(function(g, i){ return r.g[i] === "1"; });
   if (fired.length) { cr.append(el("span", "sep")); fired.forEach(function(g){ var s = el("span", "g", g); s.title = SIGN[g] + " 発生"; cr.append(s); }); }
   id.append(cr);
@@ -960,7 +969,7 @@ function rowItem(r, k, L, rankText, opts){
 function renderFav(){
   var list = $("list"); list.innerHTML = "";
   var q = state.q.trim(), Q = q.toUpperCase(), ql = q.toLowerCase();
-  var NAMES = {us: "米国株", crypto: "暗号資産", watch: "お気に入り枠"};
+  var NAMES = {us: "米国株", jp: "日本株", etf: "ETF", crypto: "暗号資産", watch: "お気に入り枠"};
   if (q) {
     var hits = allRows().filter(function(x){ return x.r.s.toLowerCase().indexOf(ql) >= 0 || (x.r.n || "").toLowerCase().indexOf(ql) >= 0; });
     hits.sort(function(a, b){ var ea = a.r.s.toUpperCase() === Q ? 0 : a.r.s.toUpperCase().indexOf(Q) === 0 ? 1 : 2, eb = b.r.s.toUpperCase() === Q ? 0 : b.r.s.toUpperCase().indexOf(Q) === 0 ? 1 : 2; return ea - eb; });
@@ -999,7 +1008,7 @@ function render(){
   $("hdate").textContent = L.asof + " 終値";
   var tabs = $("tabs"); tabs.innerHTML = "";
   keys.forEach(function(k){
-    var b = el("button", null, k === "fav" ? "★ お気に入り" : D.lists[k].label); b.setAttribute("role", "tab"); b.id = "tab-" + k; b.type = "button";
+    var b = el("button", null, k === "fav" ? "★" : D.lists[k].label); if (k === "fav") b.setAttribute("aria-label", "お気に入り"); b.setAttribute("role", "tab"); b.id = "tab-" + k; b.type = "button";
     b.setAttribute("aria-selected", k === state.tab);
     b.onclick = function(){ state.tab = k; state.open = null; state.limit = 40; state.filter = "all"; state.q = ""; $("q").value = ""; try { localStorage.setItem("tab", k); } catch (e) {} render(); };
     tabs.append(b);
@@ -1065,7 +1074,9 @@ function render(){
   dl.append(el("dt", null, "候補"), el("dd", null, "質の条件をすべて満たし、シグナルが1つ以上出て、市場条件 M が合格の銘柄"));
   dl.append(el("dt", null, "M"), el("dd", null, "市場指数がダウ理論の上昇トレンドにあり、200日移動平均より上。不合格の日は候補を出さない"));
   if (L.crit.indexOf("C") >= 0) dl.append(el("dt", null, "I"), el("dd", null, "機関投資家の保有動向。データを取得できないため未評価"));
-  else dl.append(el("dt", null, "注"), el("dd", null, "暗号資産には決算がないため、値動きの条件だけで判定する。数量は小数第4位まで"));
+  if (state.tab === "jp") dl.append(el("dt", null, "－"), el("dd", null, "C・A の点線の印は決算データを取得できず判定できないもの。合格に数えない。日本株の市場条件 M は TOPIX 連動ETF（1306.T）で判定する。売買単位は設定で100株／1株を選べる"));
+  if (state.tab === "etf") dl.append(el("dt", null, "注"), el("dd", null, "ETF には決算がないため、値動きの条件だけで判定する。L は ETF の中での順位。市場条件 M は S&P 500 で判定する（日本の ETF も同じ）"));
+  if (state.tab === "crypto") dl.append(el("dt", null, "注"), el("dd", null, "暗号資産には決算がないため、値動きの条件だけで判定する。数量は小数第4位まで"));
   renderStats();
   renderPaper();
   renderDemo();
@@ -1073,10 +1084,19 @@ function render(){
     "条件に合致した銘柄の一覧で、売買の推奨ではない。シグナルの過去成績は「過去データでのシグナル成績」を参照。CAN SLIM の決算条件は過去検証できていない。データは Yahoo Finance 由来で、誤りや遅延を含みうる。";
 }
 $("q").addEventListener("input", function(e){ state.q = e.target.value; state.limit = 40; render(); var i = $("q"); i.focus(); });
+function loadBars(){
+  var files = D.barsFiles || {}; D.opens = D.opens || {};
+  Object.keys(files).forEach(function(k){
+    fetch(files[k], {cache: "no-cache"}).then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(b){ D.opens[k] = b; render(); })
+      .catch(function(){ demo.note = "約定判定用の値動きデータ（" + files[k] + "）を読めなかった。再読み込みしてほしい。"; render(); });
+  });
+}
 $("sheetbg").addEventListener("click", closeConfirm);
 document.addEventListener("keydown", function(e){ if (e.key === "Escape" && !$("sheet").hidden) closeConfirm(); });
 initSettings();
 render();
+loadBars();
 startDemo();
 })();
 </script>

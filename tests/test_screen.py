@@ -248,3 +248,25 @@ def test_rs_rank_against_reference_universe():
     assert out.loc[0, "rs_rank"] == pytest.approx(round(76 / 101 * 98 + 1))
     assert out.loc[1, "rs_rank"] < 30 and np.isnan(out.loc[2, "rs_rank"])
     assert bool(out.loc[0, "L"]) is False or out.loc[0, "rs_rank"] >= 80
+
+
+def test_parse_jpx_list_keeps_domestic_prime_only():
+    from tradelab.screen import parse_jpx_list
+    raw = pd.DataFrame({"日付": [20261031] * 5,
+                        "コード": [7203, "130A", 1306, 9984, 4385],
+                        "銘柄名": ["トヨタ自動車", "新興A", "TOPIX ETF", "ソフトバンクグループ", "メルカリ"],
+                        "市場・商品区分": ["プライム（内国株式）", "グロース（内国株式）", "ETF・ETN",
+                                     "プライム（内国株式）", "プライム（外国株式）"],
+                        "33業種区分": ["輸送用機器", "情報・通信業", "-", "情報・通信業", "情報・通信業"]})
+    t = parse_jpx_list(raw)
+    assert list(t["symbol"]) == ["7203.T", "9984.T"]
+    assert list(t["sector"]) == ["輸送用機器", "情報・通信業"] and t["name"][0] == "トヨタ自動車"
+    with pytest.raises(ValueError):
+        parse_jpx_list(raw.drop(columns=["コード"]))
+
+
+def test_etf_universe_and_unknown_name():
+    t = load_universe("etf")
+    assert {"SPY", "1306.T", "GLD"} <= set(t["symbol"]) and t["symbol"].is_unique
+    with pytest.raises(ValueError):
+        load_universe("nasdaq")

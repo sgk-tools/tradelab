@@ -6,33 +6,61 @@ on:
   workflow_dispatch:         # Actions 画面から手動実行もできる
 
 permissions:
-  contents: write
+  contents: write            # state/（順位と紙上売買の記録）をコミットする
+  pages: write               # 公開ページを配信する
+  id-token: write
 
 concurrency:
   group: daily-update
   cancel-in-progress: false
 
 jobs:
-  update:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install "pandas>=2.0" "numpy>=1.24" "matplotlib>=3.7" "requests>=2.28" pytest
+        run: pip install "pandas>=2.0" "numpy>=1.24" "matplotlib>=3.7" "requests>=2.28" "xlrd>=2.0" pytest
+      - name: Week
+        id: week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - name: Earnings cache (refreshed once a week)
+        uses: actions/cache@v4
+        with:
+          path: data/cache/fundamentals-week
+          key: fundamentals-${{ steps.week.outputs.week }}
       - name: Test
         run: python -m pytest -q
-      - name: Build ranking (previous docs/data.json and docs/ledger.json are reused)
-        run: python -m tradelab app --out docs --watch watch.txt
-      - name: Publish
+      - name: Build ranking
+        run: python -m tradelab app --out _site --state state --watch watch.txt
+      - name: Save state (ranking for change markers, paper-trade record, JPX list)
         run: |
-          rm -f docs/page.html
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs
-          if git diff --cached --quiet; then echo "no changes"; exit 0; fi
+          git add state data/universe
+          if git diff --cached --quiet; then echo "no state change"; exit 0; fi
           git commit -m "daily update $(date -u +%Y-%m-%d)"
+          git pull --rebase
           git push
+      - name: Prepare site
+        run: |
+          rm -f _site/page.html
+          touch _site/.nojekyll
+          ls -la _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

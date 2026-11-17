@@ -5,19 +5,25 @@
 
 ## 公開ページと毎朝の自動更新（GitHub Pages）
 
-- 公開ページ: `docs/index.html`（GitHub Pages で `main` ブランチの `/docs` を公開する）。
-- 毎朝 07:13 JST ごろ、GitHub Actions（`.github/workflows/daily.yml`）が次を行う: テスト → 価格取得とランキング作成（`python -m tradelab app --out docs --watch watch.txt`）→ `docs/` をコミット。前日の `docs/data.json`（順位変動）と `docs/ledger.json`（紙上売買の記録）を引き継ぐ。
-- 手動で動かすときは、GitHub の Actions タブ → daily-update → Run workflow。
-- お気に入りに S&P 500・主要暗号資産以外の銘柄を入れるときは、`watch.txt` に Yahoo Finance の銘柄コードを書く（例: `7203.T`）。
-- 公開ページのデモトレードとお気に入りは、各自のブラウザにだけ保存される（端末間で共有されない）。
+公開ページ: https://sgk-tools.github.io/tradelab/
+
+- 対象: 米国株（S&P 500）、日本株（東証プライム全体）、主要ETF（米国・日本 約60本）、主要暗号資産12銘柄。投資信託は対象外（基準価額しかなく、データ源もないため）。
+- 毎朝 07:13 JST ごろ、GitHub Actions（`.github/workflows/daily.yml`）が次を行う: テスト → 価格取得と判定（`python -m tradelab app --out _site --state state --watch watch.txt`）→ `state/` をコミット → `_site/` を GitHub Pages に配信。
+- `state/data.json`（前日の順位）と `state/ledger.json`（紙上売買の記録）だけをリポジトリに残す。ページ本体は毎回作り直して配信し、コミットしない（リポジトリの肥大を防ぐ）。
+- 決算データは週1回だけ取得し、GitHub Actions のキャッシュに置く。価格は毎日取得する。
+- 東証プライムの銘柄一覧は JPX の公開ファイルから取得し、`data/universe/jp_prime.csv` に控えを残す（取得に失敗した日は控えを使う）。
+- 日本株の C・A は、決算データが取れない銘柄を「判定不能（点線の印）」として区別する。合格には数えない。
+- 手動で動かすときは Actions タブ → daily-update → Run workflow。
+- お気に入りに一覧外の銘柄を入れるときは `watch.txt` に Yahoo Finance の銘柄コードを書く。
+- 公開ページのデモトレードとお気に入りは、各自のブラウザにだけ保存される。日本株は100株単位（設定で1株＝ミニ株に変更可）、米国株は1株単位。
 - 条件に合致した銘柄の一覧であり、売買の推奨ではない。データは Yahoo Finance 由来で、誤りや遅延を含みうる。
 
 ### 初回の設定
 
-1. このリポジトリを公開（Public）にする。
-2. Settings → Pages → Build and deployment: Source を「Deploy from a branch」、Branch を `main` / `/docs` にして保存。
+1. リポジトリを公開（Public）にする。
+2. Settings → Pages → Build and deployment の Source を「GitHub Actions」にする。
 3. Settings → Actions → General → Workflow permissions を「Read and write permissions」にする。
-4. Actions タブで daily-update を一度 Run workflow して、成功を確かめる。
+4. Actions タブで daily-update を Run workflow して、build と deploy の両方が成功することを確かめる。
 
 ## できること
 

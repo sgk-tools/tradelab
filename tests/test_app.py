@@ -91,3 +91,18 @@ def test_render_writes_embeddable_and_standalone_pages(tmp_path):
     assert json.loads(block)["lists"]["us"]["rows"][0]["n"] == "N </script> & co"
     assert load_previous(tmp_path)["lists"]["us"]["rows"][0]["s"] == "WIN"
     assert load_previous(tmp_path / "nope") is None
+
+
+def test_missing_earnings_marked_as_not_measurable_and_bars_split(tmp_path):
+    res = run_screen(pd.DataFrame({"symbol": ["WIN"], "name": "", "sector": ""}),
+                     ScreenConfig(dow_swing=3), {"idx": "^M"}, price_loader=lambda s: PRICES[s],
+                     fundamentals_loader=lambda s: {k: v.iloc[:0] for k, v in GOOD.items()})
+    data = build_app_data({"us": ("x", res)}, lambda s: PRICES[s], lambda s: GOOD)
+    row = data["lists"]["us"]["rows"][0]
+    assert row["p"][:2] == "--" and row["p"][2:6] != "----"
+    paths = render_app(data, tmp_path / "site", state_dir=tmp_path / "state")
+    page = paths["index"].read_text(encoding="utf-8")
+    bars = json.loads((tmp_path / "site" / "bars_us.json").read_text())
+    assert bars["d"] and "WIN" in bars["o"] and '"barsFiles":{"us":"bars_us.json"}' in page
+    state = json.loads((tmp_path / "state" / "data.json").read_text())
+    assert state["lists"]["us"]["rows"][0]["s"] == "WIN" and "opens" not in state

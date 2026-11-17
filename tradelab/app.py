@@ -60,6 +60,14 @@ def _chart(prices: pd.DataFrame, fundamentals: dict | None) -> dict:
     return out
 
 
+def _mark(r, c: str) -> str:
+    """'1' pass, '0' fail, '-' not measurable (earnings data missing)."""
+    missing = {"C": ["eps_growth_q"], "A": ["eps_cagr", "roe"]}.get(c, [])
+    if not bool(r[c]) and any(pd.isna(r.get(m)) for m in missing):
+        return "-"
+    return "1" if bool(r[c]) else "0"
+
+
 def _list(result: ScreenResult, label: str, prev_ranks: dict[str, int],
           currency: dict[str, str] | None = None) -> dict:
     t = result.table
@@ -69,7 +77,7 @@ def _list(result: ScreenResult, label: str, prev_ranks: dict[str, int],
         rows.append({
             "s": r["symbol"], "n": str(r.get("name") or ""), "sec": str(r.get("sector") or ""),
             "sc": int(r["swing_score"]), "cand": bool(r["swing_candidate"]),
-            "p": "".join("1" if bool(r[c]) else "0" for c in crit),
+            "p": "".join(_mark(r, c) for c in crit),
             "g": "".join("1" if bool(r[c]) else "0" for c in SIGNALS),
             "st": _num(r.get("stop"), 4), "tg": _num(r.get("target"), 4),
             "rp": _num(r.get("risk_pct")), "at": _num(r.get("atr"), 4),
@@ -176,19 +184,41 @@ def build_app_data(results: dict[str, tuple[str, ScreenResult]],
     }
 
 
-def render_app(data: dict, out_dir: str | Path) -> dict[str, Path]:
-    """Write page.html (page fragment), index.html (standalone) and data.json."""
+def render_app(data: dict, out_dir: str | Path, split_bars: bool = True,
+               state_dir: str | Path | None = None) -> dict[str, Path]:
+    """Write page.html (page fragment), index.html (standalone) and data.json.
+
+    With ``split_bars`` the daily bars used for demo fills go to
+    bars_<list>.json next to the page (loaded by the page after it opens),
+    keeping the page itself small. data.json is the small state the next
+    build needs (each list's date and ranking); it goes to ``state_dir``
+    (default: ``out_dir``).
+    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    paths = {}
+    if split_bars and data.get("opens"):
+        for key, bars in data["opens"].items():
+            paths[f"bars_{key}"] = out / f"bars_{key}.json"
+            paths[f"bars_{key}"].write_text(json.dumps(bars, separators=(",", ":")), encoding="utf-8")
+        page_data = {**data, "opens": {}, "barsFiles": {k: f"bars_{k}.json" for k in data["opens"]}}
+    else:
+        page_data = data
+    payload = json.dumps(page_data, ensure_ascii=False, separators=(",", ":"))
+    state = {"generated": data.get("generated"),
+             "lists": {k: {"asof": L["asof"], "rows": [{"s": r["s"], "prev": r.get("prev")} for r in L["rows"]]}
+                       for k, L in data.get("lists", {}).items()}}
+    full = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+    state_path = Path(state_dir or out)
+    state_path.mkdir(parents=True, exist_ok=True)
     fragment = TEMPLATE.read_text(encoding="utf-8").replace(
         "__DATA__", payload.replace("</", "<\\/"))
-    paths = {"page": out / "page.html", "index": out / "index.html",
-             "data": out / "data.json"}
+    paths.update({"page": out / "page.html", "index": out / "index.html",
+                  "data": state_path / "data.json"})
     paths["page"].write_text(fragment, encoding="utf-8")
     paths["index"].write_text(_STANDALONE_HEAD + fragment + "\n</body></html>\n",
                               encoding="utf-8")
-    paths["data"].write_text(payload, encoding="utf-8")
+    paths["data"].write_text(full, encoding="utf-8")
     return paths
 
 
