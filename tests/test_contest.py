@@ -99,3 +99,39 @@ def test_gap_below_stop_sells_at_open():
     rows = "2026/11/16 20:00:00,ken,AAA,買い,成行,10,,93,,\n"
     _, _, players = run(rows, data)
     assert players["ken"].trades[0]["p"] == 80 and players["ken"].trades[0]["why"] == "stop"
+
+
+def fake_supabase(tables):
+    def fetch(table, **kw):
+        return tables[table]
+    return fetch
+
+
+def test_supabase_orders_exits_and_players_without_orders():
+    data = {"AAA": bars([100, 100, 100, 100, 100, 90], highs=[101] * 6, lows=[99, 99, 99, 99, 99, 89])}
+    tables = {
+        "profiles": [{"id": "u1", "name": "ken"}, {"id": "u2", "name": "amy"}, {"id": "u3", "name": "new"}],
+        "orders": [
+            {"id": 1, "user_id": "u1", "created_at": "2026-11-16T11:00:00+00:00", "symbol": "aaa",
+             "side": "buy", "type": "market", "qty": 10, "st": 80},
+            {"id": 2, "user_id": "u2", "created_at": "2026-11-16T11:00:00Z", "symbol": "AAA",
+             "side": "buy", "type": "limit", "qty": 10, "px": 50},
+            {"id": 3, "user_id": "u2", "created_at": "2026-11-17T11:00:00Z", "symbol": "",
+             "side": "cancel", "target": 2},
+            {"id": 4, "user_id": "zz", "created_at": "2026-11-16T11:00:00Z", "symbol": "AAA",
+             "side": "buy", "type": "market", "qty": 1}],          # unknown account: ignored
+        # ken raised his stop to 99.5 after buying (07:00 NY on the 17th): it applies from that session
+        "exits": [{"user_id": "u1", "symbol": "AAA", "enabled": True, "st": 99.5, "tg": None,
+                   "set_at": "2026-11-17T12:00:00Z"}],
+        "favorites": [{"symbol": "7203.t"}, {"symbol": "SOFI"}, {"symbol": "SOFI"}],
+    }
+    cfg = {"capital": 10_000_000, "start": "2026-11-01", "supabase_url": "x"}
+    board = C.build_supabase(cfg, "key", LISTS, lambda s: data[s], FX, fetch=fake_supabase(tables))
+    players = {p["name"]: p for p in board["players"]}
+    assert set(players) == {"ken", "amy", "new"} and players["new"]["equity"] == 10_000_000
+    ken = players["ken"]
+    assert ken["trades"][0]["why"] == "stop" and ken["trades"][0]["d"] == "2026-11-17"  # saved before the NY open
+    assert ken["trades"][0]["p"] == 99.5             # the edited stop, not the original 80
+    status = {o["id"]: o["st"] for o in board["orders"]}
+    assert status[1] == "filled" and status[2] == "cancelled" and 4 not in status
+    assert C.favorite_symbols(cfg, "key", fetch=fake_supabase(tables)) == ["7203.T", "SOFI"]

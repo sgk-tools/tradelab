@@ -71,7 +71,7 @@ tradelab/
 tests/             自動テスト（変更したら必ず全件実行）
 state/             毎日の引き継ぎデータ（自動更新がコミットする）
 watch.txt          お気に入りのうち一覧外の銘柄（1行1銘柄）
-contest/           大会の設定（config.json）と Google フォームの準備手順（SETUP.md）
+contest/           大会の設定（config.json）、Supabase の表と規則（supabase.sql）、準備手順（SUPABASE.md、旧方式の SETUP.md）
 .github/workflows/daily.yml  毎朝の更新と配信
 ```
 

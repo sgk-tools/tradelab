@@ -178,6 +178,10 @@ a.act.formlink{display:block;text-align:center;text-decoration:none;margin:10px 
 table.rank tr.click{cursor:pointer}
 table.rank td:nth-child(2){font-weight:700}
 .cplayer{display:flex;flex-direction:column;gap:6px;padding:4px 0 8px}
+.login{display:flex;flex-direction:column;gap:10px}
+.seg2.two{grid-template-columns:1fr 1fr}
+.fld .hint{font-size:11px;color:var(--muted)}
+.who{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
 .card h4{font-size:12px;color:var(--ink2);margin:12px 0 0;font-weight:600}
 table.st thead th{color:var(--ink2);font-weight:600;border-top:0}
 td.pos{color:var(--good);font-weight:700} td.neg{color:var(--bad);font-weight:700}
@@ -700,6 +704,13 @@ function renderDemo(){
   var box = $("demo"); box.innerHTML = "";
   if (demo.state === "off") { box.append(el("div", "small", "この表示ではデモトレードを使えない。claude.ai にログインしてこのページを開くと使える。")); return; }
   if (demo.state === "loading") { box.append(el("div", "small", demo.note || "記録を読み込み中…")); return; }
+  if (demo.state === "login") { box.append(accountBox()); return; }
+  if (demo.remote && acct.user) {
+    var who = el("div", "who"), lo = el("button", "mini", "ログアウト"); lo.type = "button";
+    lo.onclick = function(){ acct.sb.auth.signOut().then(function(){ location.reload(); }, function(){ location.reload(); }); };
+    who.append(el("span", "small", "ログイン中：" + (acct.name || "") + "（" + acct.user.email.split("@")[0] + "）"), lo);
+    box.append(who);
+  }
   var B = book(); setTimeout(function(){ persistFills(B); }, 0);
   var g = el("div", "ptop num");
   function cell(k, v, c){ var d = el("div"); d.append(el("div", "k", k), el("div", "val" + (c || ""), v)); g.append(d); }
@@ -710,6 +721,7 @@ function renderDemo(){
   box.append(g);
   if (demo.note) box.append(el("div", "small warnmsg", demo.note));
   if (demo.local) box.append(el("div", "small", "記録はこの端末のブラウザにだけ保存される。別の端末とは共有されず、ブラウザのデータを消すと消える。"));
+  if (demo.remote) box.append(el("div", "small", "この画面の約定と損益は見込み。大会の順位は毎朝の更新で、受付時刻と値動きから計算し直した結果を使う。"));
   if (!demo.owner) box.append(el("div", "small", "閲覧のみ。注文できるのはページの所有者だけ。"));
 
   function table(title, list, cols, empty){
@@ -761,7 +773,7 @@ function renderDemo(){
     ltb.append(tr); });
   lt.append(ltb); det.append(B.log.length ? lt : el("div", "small", "なし")); box.append(det);
   box.append(el("div", "small", "仮想資金 " + B.cap.toLocaleString() + " 円で開始" + (demo.account && demo.account.started ? "（" + demo.account.started + "）" : "") + "。成行は注文後に始まる最初の取引日の始値で約定。指値・逆指値は日々の高値・安値がその価格に届いた日に約定し、取消まで有効（最長" + ORDER_DAYS + "取引日）。自動売却は安値が損切り価格以下、または高値が利確価格以上になった日に全数量を売る（同じ日に両方なら損切り優先）。約定は毎朝の更新後にページを開くと反映される。手数料は片道 株 0.1%・暗号資産 0.15% と仮定。円換算は注文時の為替、評価は現在の為替。税金とスプレッドは含まない。"));
-  if (demo.owner) {
+  if (demo.owner && !demo.remote) {
     var rs = el("button", "mini warn", demo.armReset > Date.now() ? "本当にリセットする（記録を全部消す）" : "デモ口座をリセット");
     rs.type = "button";
     rs.onclick = function(){
@@ -822,7 +834,144 @@ function localDb(){
   return {doc: doc, collection: coll};
 }
 
+/* ---- accounts on Supabase (ID + password). Same calls as the browser store, so the
+   demo screens work unchanged; fills are recomputed here and on the server from the
+   same rules, and the server's result is what the ranking uses. ---- */
+var SB_LIB = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js";
+var acct = {sb: null, user: null, name: "", mode: "login", msg: "", busy: false};
+function authCfg(){ return D.contest && D.contest.auth && D.contest.auth.url && D.contest.auth.key ? D.contest.auth : null; }
+function loadScript(src){ return new Promise(function(ok, ng){ var s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = ng; document.head.append(s); }); }
+
+function remoteDb(sb, uid){
+  var cache = {orders: [], exits: [], favorites: []}, subs = {orders: [], exits: [], favorites: [], account: []};
+  function emit(kind){ subs[kind].forEach(function(f){ f(); }); }
+  function fail(e){ var err = {code: (e && (e.code || e.message)) || "error"}; throw err; }
+  function load(kind){
+    var q = sb.from(kind).select("*"); if (kind === "orders") q = q.order("id", {ascending: true});
+    return q.then(function(r){ if (r.error) fail(r.error); cache[kind] = r.data || []; emit(kind); });
+  }
+  function snap(id, data){ return {id: id, exists: data != null, data: function(){ return data == null ? undefined : JSON.parse(JSON.stringify(data)); }, metadata: {fromCache: false, hasPendingWrites: false}}; }
+  function qsnap(docs){ return {docs: docs, size: docs.length, empty: !docs.length, docChanges: function(){ return []; }, metadata: {fromCache: false, hasPendingWrites: false}}; }
+  function keyOf(s){ var x = findRow(s); return x ? x.k : ""; }
+  var views = {
+    orders: function(){
+      var cancelled = {};
+      cache.orders.forEach(function(r){ if (r.side === "cancel" && r.target) cancelled[r.target] = r.created_at; });
+      return cache.orders.filter(function(r){ return r.side !== "cancel"; }).map(function(r){
+        return snap(String(r.id), {k: r.k || keyOf(r.symbol), s: r.symbol, side: r.side, type: r.type, q: r.qty, px: r.px, st: r.st, tg: r.tg,
+          auto: !!r.auto, cu: r.cu || curOf(r.k || keyOf(r.symbol), r.symbol), fx: r.fx || rateOf(r.cu || "USD") || opt.fx,
+          asof: r.asof || r.created_at.slice(0, 10), placedAt: r.created_at, status: cancelled[r.id] ? "cancelled" : "open"});
+      });
+    },
+    exits: function(){ return cache.exits.map(function(r){ var k = r.k || keyOf(r.symbol); return snap(exitKey(k, r.symbol), {k: k, s: r.symbol, on: !!r.enabled, st: r.st, tg: r.tg, setAt: r.set_at}); }); },
+    favorites: function(){ return cache.favorites.map(function(r){ return snap(safeId(r.symbol), {s: r.symbol, addedAt: r.added_at}); }); }
+  };
+  var KIND = {"demo/account/orders": "orders", "demo/account/exits": "exits", "demo/account/watch": "favorites"};
+  function collection(path){
+    var kind = KIND[path];
+    return {path: path,
+      onSnapshot: function(next, err){ var f = function(){ next(qsnap(views[kind]())); }; subs[kind].push(f); load(kind).catch(function(e){ if (err) err(e); }); return function(){}; },
+      add: function(b){
+        return sb.from("orders").insert({symbol: b.s, side: b.side, type: b.type || "market", qty: b.q, px: b.px == null ? null : b.px,
+          st: b.st == null ? null : b.st, tg: b.tg == null ? null : b.tg, k: b.k, cu: b.cu, fx: b.fx, asof: b.asof, auto: !!b.auto})
+          .then(function(r){ if (r.error) fail(r.error); return load("orders"); });
+      },
+      doc: function(id){ return doc(path + "/" + id); }};
+  }
+  function doc(path){
+    if (path === "demo/account") {
+      var cap = {capital: D.contest.capital || 10000000, started: D.contest.start || ""};
+      return {onSnapshot: function(next){ setTimeout(function(){ next(snap("account", cap)); }, 0); return function(){}; },
+        set: function(){ return Promise.resolve(); }, update: function(){ return Promise.resolve(); }, get: function(){ return Promise.resolve(snap("account", cap)); }};
+    }
+    var parts = path.split("/"), id = parts.pop(), kind = KIND[parts.join("/")];
+    return {
+      update: function(patch){
+        if (kind === "orders" && patch && patch.status === "cancelled")
+          return sb.from("orders").insert({side: "cancel", target: +id, symbol: ""}).then(function(r){ if (r.error) fail(r.error); return load("orders"); });
+        return Promise.resolve();                          // fills and expiry are recomputed, never stored
+      },
+      set: function(d){
+        if (kind === "exits") return sb.from("exits").upsert({user_id: uid, symbol: d.s, k: d.k, enabled: !!d.on, st: d.st == null ? null : d.st, tg: d.tg == null ? null : d.tg}, {onConflict: "user_id,symbol"})
+          .then(function(r){ if (r.error) fail(r.error); return load("exits"); });
+        if (kind === "favorites") return sb.from("favorites").upsert({user_id: uid, symbol: d.s}, {onConflict: "user_id,symbol", ignoreDuplicates: true})
+          .then(function(r){ if (r.error) fail(r.error); return load("favorites"); });
+        return Promise.resolve();                          // automatic sells are recomputed, never stored
+      },
+      delete: function(){
+        var row = (cache[kind] || []).filter(function(r){ return (kind === "exits" ? exitKey(r.k || keyOf(r.symbol), r.symbol) : safeId(r.symbol)) === id; })[0];
+        if (!row || kind === "orders") return Promise.resolve();
+        return sb.from(kind).delete().eq("symbol", row.symbol).then(function(r){ if (r.error) fail(r.error); return load(kind); });
+      }
+    };
+  }
+  return {doc: doc, collection: collection};
+}
+
+function startAccount(){
+  var A = authCfg();
+  demo.remote = true; demo.state = "loading"; CAPITAL = D.contest.capital || 10000000;
+  opt.jpLot = 100;
+  try { if (!localStorage.getItem("opt")) opt.cap = CAPITAL; } catch (e) { opt.cap = CAPITAL; }
+  $("cap").value = opt.cap;
+  render();
+  var lib = window.supabase && window.supabase.createClient ? Promise.resolve() : loadScript(SB_LIB);
+  lib.then(function(){
+    acct.sb = window.supabase.createClient(A.url, A.key, {auth: {persistSession: true, autoRefreshToken: true}});
+    return acct.sb.auth.getSession();
+  }).then(function(r){
+    var s = r && r.data && r.data.session;
+    if (s) signedIn(s.user); else { demo.state = "login"; render(); }
+  }).catch(function(){ demo.state = "off"; demo.note = "ログイン機能を読み込めなかった。通信状態を確かめて再読み込みしてほしい。"; render(); });
+}
+
+function signedIn(user){
+  acct.user = user; acct.msg = "";
+  acct.sb.from("profiles").select("name").eq("id", user.id).then(function(r){ acct.name = r && r.data && r.data[0] ? r.data[0].name : ""; render(); });
+  startStore(remoteDb(acct.sb, user.id), true);
+}
+
+function accountBox(){
+  var A = authCfg(), box = el("div", "login");
+  var seg = el("div", "seg2 two");
+  [["login", "ログイン"], ["signup", "新規登録"]].forEach(function(m){ var b = el("button", null, m[1]); b.type = "button"; b.setAttribute("aria-pressed", acct.mode === m[0]); b.onclick = function(){ acct.mode = m[0]; acct.msg = ""; render(); }; seg.append(b); });
+  box.append(el("div", "small", "大会の口座（初期資金 " + (CAPITAL / 10000).toLocaleString() + "万円）にログインする。注文と成績はどの端末からでも同じものが見える。"), seg);
+  function field(label, type, ac, hint){ var l = el("label", "small fld"), i = el("input"); i.type = type; i.autocomplete = ac; l.append(el("span", null, label), i); if (hint) l.append(el("span", "hint", hint)); box.append(l); return i; }
+  var id = field("ID（半角英数字・3〜20文字）", "text", "username"); id.autocapitalize = "none"; id.spellcheck = false;
+  var pw = field("パスワード（8文字以上）", "password", acct.mode === "signup" ? "new-password" : "current-password");
+  var nm = null, inv = null;
+  if (acct.mode === "signup") { nm = field("表示名（ランキングに出る名前・20文字まで）", "text", "nickname"); inv = field("招待コード", "text", "off", "主催者から聞いたコード"); }
+  var msg = el("div", "small warnmsg", acct.msg || ""), go = el("button", "act", acct.mode === "signup" ? "登録してログイン" : "ログイン");
+  go.type = "button"; go.disabled = acct.busy;
+  go.onclick = function(){
+    var uid = id.value.trim().toLowerCase();
+    if (!/^[a-z0-9_-]{3,20}$/.test(uid)) { acct.msg = "ID は半角英数字（- と _ も可）で3〜20文字にしてほしい。"; render(); return; }
+    if (pw.value.length < 8) { acct.msg = "パスワードは8文字以上にしてほしい。"; render(); return; }
+    var email = uid + "@" + (A.domain || "sgk-tools.github.io");
+    acct.busy = true; acct.msg = "通信中…"; render();
+    var p = acct.mode === "signup"
+      ? acct.sb.auth.signUp({email: email, password: pw.value, options: {data: {name: (nm.value.trim() || uid).slice(0, 20), invite: inv.value.trim()}}})
+      : acct.sb.auth.signInWithPassword({email: email, password: pw.value});
+    p.then(function(r){
+      acct.busy = false;
+      if (r.error) {
+        var m = String(r.error.message || "");
+        acct.msg = acct.mode === "signup"
+          ? (/registered|exists/i.test(m) ? "その ID はもう使われている。" : /database|invite/i.test(m) ? "招待コードが違うか、表示名がもう使われている。" : "登録できなかった（" + m + "）。")
+          : (/invalid/i.test(m) ? "ID かパスワードが違う。" : "ログインできなかった（" + m + "）。");
+        render(); return;
+      }
+      var s = r.data && r.data.session;
+      if (s) signedIn(s.user); else { acct.msg = "登録はできたが、ログインできなかった。主催者に「メール確認をオフにする」設定を確かめてもらってほしい。"; render(); }
+    }, function(){ acct.busy = false; acct.msg = "通信できなかった。"; render(); });
+  };
+  box.append(go, msg);
+  if (acct.mode === "login") box.append(el("div", "small", "パスワードを忘れたときは主催者に連絡する（この方式ではメールで再設定できない）。"));
+  return box;
+}
+
 function startDemo(){
+  if (authCfg()) { startAccount(); return; }
   if (!window.claude || !window.claude.use) { demo.local = true; startStore(localDb(), true); return; }
   var timer = setTimeout(function(){ if (demo.state === "loading") { demo.note = "記録をまだ読み込めない。通信状態を確認してほしい。"; render(); } }, 10000);
   Promise.all([window.claude.use("db"), window.claude.use("user")]).then(function(x){
@@ -934,10 +1083,11 @@ function renderPaper(){
 
 function initSettings(){
   var cap = $("cap"), risk = $("risk"), fx = $("fx"), jl = $("jplot");
+  if (authCfg()) jl.parentNode.hidden = true;           // contest accounts trade Japanese stocks in 100-share lots
   cap.value = opt.cap; risk.value = opt.risk; fx.value = opt.fx; jl.value = String(opt.jpLot);
   $("fxnote").textContent = D.fx ? "米ドル円の既定値は " + D.fx.asof + " の終値 " + D.fx.usdjpy + "。この端末にだけ保存する。" : "為替データを取得できなかった。米ドル円を手入力してほしい。";
   function save(){
-    opt.cap = Math.max(0, +cap.value || 0); opt.risk = Math.min(10, Math.max(0.1, +risk.value || 1)); opt.jpLot = +jl.value === 1 ? 1 : 100;
+    opt.cap = Math.max(0, +cap.value || 0); opt.risk = Math.min(10, Math.max(0.1, +risk.value || 1)); opt.jpLot = authCfg() ? 100 : (+jl.value === 1 ? 1 : 100);
     var f = +fx.value; if (f > 0 && (!D.fx || f !== D.fx.usdjpy)) { opt.fx = f; opt.fxManual = true; } else if (D.fx) { opt.fx = D.fx.usdjpy; opt.fxManual = false; }
     try { localStorage.setItem("opt", JSON.stringify(opt)); } catch (e) {}
     render();
@@ -996,6 +1146,7 @@ function renderFav(){
   var favs = Object.keys(demo.watch).map(function(id){ return demo.watch[id]; }).sort(function(a, b){ return a.addedAt < b.addedAt ? -1 : 1; });
   $("count").textContent = demo.state !== "ready" ? "お気に入りを読み込み中…" : "お気に入り " + favs.length + " / " + FAV_MAX + " 銘柄。上の欄で検索して ☆ で追加する。";
   if (demo.state === "off") { list.append(el("li", "empty", "お気に入りは claude.ai にログインしてこのページを開くと使える。")); return; }
+  if (demo.state === "login") { list.append(el("li", "empty", "お気に入りはログインすると使える（上のデモトレード欄からログイン）。")); return; }
   if (demo.state === "ready" && !favs.length) { list.append(el("li", "empty", "まだお気に入りがない。上の欄で銘柄コードか名前を検索してほしい。")); return; }
   var fails = {}; ((D.lists.watch || {}).fails || []).forEach(function(f){ fails[f.s] = f.why; });
   favs.forEach(function(f){
@@ -1026,9 +1177,10 @@ function lineChart(series){
 function renderContest(){
   var C = D.contest, box = $("contest"); box.innerHTML = "";
   box.append(el("h2", "ch", "仲間内の大会（初期資金 " + (C.capital ? (C.capital / 10000).toLocaleString() + "万円" : "–") + "）"));
-  if (C.error) { box.append(el("div", "small warnmsg", "今朝の集計に失敗した: " + C.error)); }
+  if (C.error) box.append(el("div", "small warnmsg", /SUPABASE_SERVICE_KEY/.test(C.error) ? "ランキングの集計は準備中（主催者の設定待ち）。ログインと注文はできる。" : "今朝の集計に失敗した: " + C.error));
   if (C.form) { var a = el("a", "act formlink", "注文フォームを開く ↗"); a.href = C.form; a.target = "_blank"; a.rel = "noopener"; box.append(a); }
-  if (!C.players) return;
+  if (C.auth) box.append(el("div", "small", "注文は各市場のタブで銘柄を開き、デモトレード欄から出す（ログインが必要）。"));
+  if (!C.players) { box.append(el("div", "small", "ランキングは毎朝の更新で作られる。まだ集計がない。")); return; }
   box.append(el("div", "small", "開始 " + (C.start || "–") + "・集計 " + C.asof + "。週間は " + C.starts.week + "（月曜）から、月間は " + C.starts.month + " から、年間は " + C.starts.year + " から。"));
   var per = state.cper || "week", seg = el("div", "seg2 four");
   Object.keys(CPER).forEach(function(k){ var b = el("button", null, CPER[k]); b.type = "button"; b.setAttribute("aria-pressed", per === k); b.onclick = function(){ state.cper = k; render(); }; seg.append(b); });
@@ -1040,7 +1192,7 @@ function renderContest(){
   if (!ps.length) { var tr0 = el("tr"), td0 = el("td", null, "まだ参加者がいない。フォームから最初の注文を出すと参加になる。"); td0.colSpan = 4; tr0.append(td0); tb.append(tr0); }
   ps.forEach(function(p, i){
     var tr = el("tr", "click"), r = p.ret[per];
-    tr.append(el("td", null, String(i + 1)), el("td", null, p.name), el("td", r > 0 ? "pos" : r < 0 ? "neg" : "", signPct(r)), el("td", null, yen(p.equity)));
+    tr.append(el("td", null, String(i + 1)), el("td", null, p.name + (acct.name && acct.name === p.name ? "（自分）" : "")), el("td", r > 0 ? "pos" : r < 0 ? "neg" : "", signPct(r)), el("td", null, yen(p.equity)));
     tr.onclick = function(){ state.cplayer = state.cplayer === p.name ? null : p.name; render(); };
     tb.append(tr);
     if (state.cplayer === p.name) { var dt = el("tr"), dd = el("td"); dd.colSpan = 4; dd.append(contestPlayer(p)); dt.append(dd); tb.append(dt); }

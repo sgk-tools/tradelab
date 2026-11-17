@@ -247,7 +247,18 @@ def cmd_app(args) -> int:
     if not lists:
         raise ValueError("no market selected")
 
+    import os
+
+    from . import contest
+    ccfg = contest.load_config(args.contest)
+    supa = ccfg.get("enabled") and ccfg.get("source") == "supabase" and ccfg.get("supabase_url")
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
     watch = parse_watch(Path(args.watch).read_text(encoding="utf-8")) if args.watch else []
+    if supa and service_key:
+        try:                           # everyone's favourites are fetched like watch.txt
+            watch = parse_watch("\n".join(watch + contest.favorite_symbols(ccfg, service_key)))
+        except Exception as exc:
+            print(f"WARNING: favourites unavailable: {exc}", file=sys.stderr)
     known = set()
     for _, res in lists.values():
         known |= set(res.table["symbol"]) | set(res.failures["symbol"])
@@ -298,11 +309,23 @@ def cmd_app(args) -> int:
         previous=load_previous(state), stats=stats, fx=fx, currencies=currencies,
         charts_per_list=args.charts)
     data["failShare"] = {k: round(v, 3) for k, v in shares.items()}
-    from . import contest
-    ccfg = contest.load_config(args.contest)
-    if ccfg.get("enabled") and ccfg.get("csv_url"):
+    symbols = {s: k for k, (_, res) in lists.items() if k != "watch" for s in res.table["symbol"]}
+    if supa:
+        auth = {"url": ccfg["supabase_url"], "key": ccfg.get("anon_key", ""),
+                "domain": ccfg.get("auth_domain", "sgk-tools.github.io")}
         try:
-            symbols = {s: k for k, (_, res) in lists.items() if k != "watch" for s in res.table["symbol"]}
+            if not service_key:
+                raise ValueError("SUPABASE_SERVICE_KEY is not set")
+            data["contest"] = contest.build_supabase(ccfg, service_key, symbols, prices,
+                                                     prices("USDJPY=X")["close"])
+            print(f"contest: {len(data['contest']['players'])} players, "
+                  f"{len(data['contest']['orders'])} orders (supabase)")
+        except Exception as exc:       # accounts keep working; the ranking waits
+            print(f"WARNING: contest ranking skipped: {exc}", file=sys.stderr)
+            data["contest"] = {"error": str(exc)[:200]}
+        data["contest"].update(auth=auth, capital=ccfg["capital"], start=ccfg.get("start"))
+    elif ccfg.get("enabled") and ccfg.get("csv_url"):
+        try:
             data["contest"] = contest.build(ccfg, contest.fetch_csv(ccfg["csv_url"]), symbols,
                                             prices, prices("USDJPY=X")["close"])
             print(f"contest: {len(data['contest']['players'])} players, "

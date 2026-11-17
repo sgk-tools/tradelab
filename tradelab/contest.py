@@ -198,9 +198,17 @@ class Player:
 
 
 def simulate(orders: list[Order], bars: Callable[[str], pd.DataFrame], usdjpy: pd.Series,
-             capital: float, until: str | None = None) -> dict[str, Player]:
-    """Replay every player's orders against daily bars; returns players by name."""
-    players: dict[str, Player] = {}
+             capital: float, until: str | None = None, exits: dict | None = None,
+             names: list[str] | None = None) -> dict[str, Player]:
+    """Replay every player's orders against daily bars; returns players by name.
+
+    ``exits`` maps (player, symbol) to a stop/target setting edited on a
+    holding: {"on", "st", "tg", "ts"}; it replaces the last buy's own setting
+    from the first session after it was saved. ``names`` adds players that
+    have not ordered yet.
+    """
+    exits = exits or {}
+    players: dict[str, Player] = {n: Player(n, capital) for n in (names or [])}
     for o in orders:
         if o.player not in players:
             players[o.player] = Player(o.player, capital)
@@ -281,15 +289,19 @@ def simulate(orders: list[Order], bars: Callable[[str], pd.DataFrame], usdjpy: p
                 b = df.iloc[idx[day]]
                 op, hi, lo = float(b["open"]), float(b["high"]), float(b["low"])
                 entry_day = day == P["first"]
+                st, tg = P.get("st"), P.get("tg")
+                e = exits.get((p.name, sym))
+                if e and e["ts"] > P.get("ts", e["ts"]) and day >= min_fill_date(e["ts"], P["key"], sym):
+                    st, tg = (e.get("st"), e.get("tg")) if e.get("on") else (None, None)
                 px = why = None
-                if P.get("st") is not None and not entry_day and op <= P["st"]:
+                if st is not None and not entry_day and op <= st:
                     px, why = op, "stop"
-                elif P.get("st") is not None and lo <= P["st"]:
-                    px, why = P["st"], "stop"
-                elif P.get("tg") is not None and not entry_day and op >= P["tg"]:
+                elif st is not None and lo <= st:
+                    px, why = st, "stop"
+                elif tg is not None and not entry_day and op >= tg:
                     px, why = op, "target"
-                elif P.get("tg") is not None and hi >= P["tg"]:
-                    px, why = P["tg"], "target"
+                elif tg is not None and hi >= tg:
+                    px, why = tg, "target"
                 if why:
                     auto = Order(id=0, player=p.name, ts=datetime.now(timezone.utc), symbol=sym,
                                  side="sell", qty=P["q"], key=P["key"])
@@ -323,7 +335,7 @@ def _execute(p: Player, o: Order, day: str, px: float, rate: float, why: str = "
         P["q"] += o.qty
         P["cost"] += cost
         P["usd"] += o.qty * px
-        P["st"], P["tg"] = o.st, o.tg
+        P["st"], P["tg"], P["ts"] = o.st, o.tg, o.ts
         p.cash -= cost
     else:
         q = min(o.qty, P["q"]) if P else 0.0
@@ -380,6 +392,111 @@ def leaderboard(players: dict[str, Player], capital: float, asof: str) -> dict:
     return {"asof": asof, "capital": capital, "starts": starts, "players": out}
 
 
+# ---- Supabase source (accounts with ID and password) -------------------------------
+
+def fetch_supabase(url: str, key: str, table: str, select: str = "*", order: str | None = None,
+                   page: int = 1000, timeout: float = 30.0) -> list[dict]:
+    """All rows of ``table`` through the REST API with the service key (bypasses row rules)."""
+    import requests
+    rows, start = [], 0
+    while True:
+        params = {"select": select}
+        if order:
+            params["order"] = order
+        r = requests.get(f"{url.rstrip('/')}/rest/v1/{table}", params=params, timeout=timeout,
+                         headers=_headers(key, start, page))
+        r.raise_for_status()
+        chunk = r.json()
+        rows += chunk
+        if len(chunk) < page:
+            return rows
+        start += page
+
+
+def _headers(key: str, start: int, page: int) -> dict:
+    h = {"apikey": key, "Range-Unit": "items", "Range": f"{start}-{start + page - 1}"}
+    if not key.startswith("sb_"):          # legacy JWT keys also go in Authorization
+        h["Authorization"] = f"Bearer {key}"
+    return h
+
+
+def _utc(text: str | None) -> datetime | None:
+    if not text:
+        return None
+    t = datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+    return (t if t.tzinfo else t.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+
+def orders_from_rows(rows: list[dict], names: dict[str, str], symbol_list: dict[str, str],
+                     start: str | None = None) -> list[Order]:
+    """Orders table rows (id, user_id, created_at, symbol, side, type, qty, px, st, tg, target)."""
+    begin = datetime.fromisoformat(start).replace(tzinfo=JST).astimezone(timezone.utc) if start else None
+    out = []
+    for r in sorted(rows, key=lambda r: r["id"]):
+        name = names.get(r.get("user_id"))
+        if not name:
+            continue
+        o = Order(id=int(r["id"]), player=name, ts=_utc(r.get("created_at")) or datetime.now(timezone.utc),
+                  symbol=str(r.get("symbol") or "").upper(), side=r.get("side") or "",
+                  type=r.get("type") or "market", qty=float(r.get("qty") or 0),
+                  px=r.get("px"), st=r.get("st"), tg=r.get("tg"),
+                  target=int(r["target"]) if r.get("target") else None)
+        if begin and o.ts < begin:
+            o.status, o.reason = "rejected", "大会開始前の注文"
+        elif o.side == "cancel":
+            if not o.target:
+                o.status, o.reason = "rejected", "取消する注文番号がない"
+        elif o.side not in ("buy", "sell"):
+            o.status, o.reason = "rejected", "売買の区分が不明"
+        else:
+            o.key = symbol_list.get(o.symbol, "")
+            if not o.key:
+                o.status, o.reason = "rejected", "対象外の銘柄（4市場の一覧にない）"
+            elif o.type not in ("market", "limit", "stop"):
+                o.status, o.reason = "rejected", "注文の種類が不明"
+            elif o.type != "market" and not (o.px and o.px > 0):
+                o.status, o.reason = "rejected", "指値・逆指値の価格がない"
+            else:
+                o.qty = round_lot(o.key, o.symbol, o.qty)
+                if o.qty <= 0:
+                    o.status, o.reason = "rejected", f"数量が売買単位（{lot_of(o.key, o.symbol):g}）未満"
+        out.append(o)
+    return out
+
+
+def build_supabase(cfg: dict, key: str, symbol_list: dict[str, str],
+                   bars: Callable[[str], pd.DataFrame], usdjpy: pd.Series,
+                   fetch: Callable | None = None) -> dict:
+    fetch = fetch or (lambda table, **kw: fetch_supabase(cfg["supabase_url"], key, table, **kw))
+    profiles = fetch("profiles", select="id,name")
+    names = {p["id"]: p["name"] for p in profiles}
+    orders = orders_from_rows(fetch("orders", order="id.asc"), names, symbol_list, cfg.get("start"))
+    exits = {}
+    for e in fetch("exits"):
+        if e.get("user_id") in names:
+            exits[(names[e["user_id"]], str(e["symbol"]).upper())] = {
+                "on": bool(e.get("enabled")), "st": e.get("st"), "tg": e.get("tg"), "ts": _utc(e.get("set_at"))}
+    players = simulate(orders, bars, usdjpy, cfg["capital"], exits=exits, names=list(names.values()))
+    days = sorted({d for p in players.values() for d in p.equity})
+    asof = days[-1] if days else datetime.now(JST).date().isoformat()
+    board = leaderboard(players, cfg["capital"], asof)
+    board["orders"] = _order_rows(orders)
+    board.update(unverified=0, form="", start=cfg.get("start"), jpLot=100)
+    return board
+
+
+def favorite_symbols(cfg: dict, key: str, fetch: Callable | None = None) -> list[str]:
+    fetch = fetch or (lambda table, **kw: fetch_supabase(cfg["supabase_url"], key, table, **kw))
+    return sorted({str(r["symbol"]).upper() for r in fetch("favorites", select="symbol")})
+
+
+def _order_rows(orders: list[Order]) -> list[dict]:
+    return [{"id": o.id, "p": o.player, "t": o.ts.astimezone(JST).strftime("%m-%d %H:%M"),
+             "s": o.symbol, "side": o.side, "type": o.type, "q": o.qty, "px": o.px,
+             "st": o.status, "why": o.reason, "fd": o.fill_date, "fp": o.fill_px}
+            for o in orders][-300:][::-1]
+
+
 def build(cfg: dict, csv_text: str, symbol_list: dict[str, str],
           bars: Callable[[str], pd.DataFrame], usdjpy: pd.Series) -> dict:
     orders, unverified = load_orders(csv_text, symbol_list, cfg.get("tz", "Asia/Tokyo"), cfg.get("start"))
@@ -387,10 +504,7 @@ def build(cfg: dict, csv_text: str, symbol_list: dict[str, str],
     days = sorted({d for p in players.values() for d in p.equity})
     asof = days[-1] if days else datetime.now(JST).date().isoformat()
     board = leaderboard(players, cfg["capital"], asof)
-    board["orders"] = [{"id": o.id, "p": o.player, "t": o.ts.astimezone(JST).strftime("%m-%d %H:%M"),
-                        "s": o.symbol, "side": o.side, "type": o.type, "q": o.qty, "px": o.px,
-                        "st": o.status, "why": o.reason, "fd": o.fill_date, "fp": o.fill_px}
-                       for o in orders][-300:][::-1]
+    board["orders"] = _order_rows(orders)
     board.update(unverified=unverified, form=cfg.get("form_url", ""), start=cfg.get("start"),
                  jpLot=100)
     return board

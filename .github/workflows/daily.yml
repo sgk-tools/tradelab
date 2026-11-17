@@ -36,6 +36,8 @@ jobs:
       - name: Test
         run: python -m pytest -q
       - name: Build ranking
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}   # contest accounts (optional)
         run: python -m tradelab app --out _site --state state --watch watch.txt
       - name: Save state (ranking for change markers, paper-trade record, JPX list)
         run: |
