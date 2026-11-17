@@ -1,6 +1,6 @@
 # 引き継ぎ書: tradelab
 
-最終更新: 2026-11-17 19:40 JST（v0.6.0 時点、Claude が作成）
+最終更新: 2026-11-17 20:30 JST（v0.6.0 初回実行の成功後、Claude が更新）
 作業ルールは AGENTS.md。ここには状況と未決事項だけを書く。
 
 ## 作業中
@@ -23,10 +23,10 @@
 |---|---|
 | 公開ページ | https://sgk-tools.github.io/tradelab/ |
 | 毎朝の更新 | GitHub Actions `daily-update`（07:13 JST、手動実行も可） |
-| 配信方式 | v0.6.0 で「GitHub Actions から直接配信」に変更。依頼者が Settings → Pages の Source を「GitHub Actions」に切り替える必要がある（切り替え済みかは未確認） |
-| v0.6.0 の初回実行 | 未確認（日本株約1,600社を初めて取得する） |
+| 配信方式 | GitHub Actions から直接配信（Settings → Pages の Source は「GitHub Actions」に切り替え済み） |
+| v0.6.0 の初回実行 | 2026-11-17 成功（build 4分16秒、deploy 15秒）。米国株 500/503、日本株 1,545/1,553、ETF 64/64、暗号資産 12/12 を評価 |
 | claude.ai の旧ページ・定期タスク | 旧ページ https://claude.ai/artifact/LUS9EwP8yyCBZcDZoodYto は更新停止。定期タスクは無効化済み（削除はしていない） |
-| 自動テスト | 130 件すべて通過（v0.6.0） |
+| 自動テスト | 132 件すべて通過 |
 
 ## 3. 経緯（要約）
 
@@ -43,14 +43,14 @@
 - 暗号資産は標本が少なく、BO 以外は比較対象以下。
 - 日本株の決算データは銘柄により欠ける。試験の32社では、C を判定できたのは25社。
 - 投資信託は Yahoo Finance から取得できなかった（試したコードで 404）。
-- GitHub Actions から Yahoo Finance への取得は、v0.5.0 の手動実行で成功している。
+- GitHub Actions から Yahoo Finance への取得は成功している（日本株の失敗は 1,553 社中 8 社）。
+- JPX の銘柄一覧は .xlsx に変わっていた（data_j.xlsx）。一覧ページからリンクを探して取得し、控えを data/universe/jp_prime.csv に保存する。
 
 ## 5. 未確認事項
 
-1. JPX の銘柄一覧（www.jpx.co.jp の data_j.xls）を GitHub Actions から取得できるか。
-2. 日本株約1,600社の取得で Yahoo の制限を受けないか。失敗が2割を超えたら TOPIX 500 相当に絞る、と依頼者と合意済み。
-3. 定時実行（07:13 JST）が動くか。
-4. iPhone 実機での表示と操作。
+1. 定時実行（07:13 JST）が動くか（手動実行は成功済み）。
+2. iPhone 実機での表示と操作（日本株を含めたページの重さを含む）。
+3. 日本株の決算データの取得率（C・A の「判定不能」の割合）。
 
 ## 6. 既知の問題と制約
 
