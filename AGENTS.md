@@ -63,7 +63,7 @@ tradelab/
   screen.py        CAN SLIM + ダウ理論の判定、銘柄一覧（S&P 500 / 東証プライム / ETF / 暗号資産）
   swing.py         トレンドテンプレート、仕掛けシグナル（BO・PP・PB・VCP）、取引計画、過去成績
   ledger.py        紙上売買の自動記録（シグナル上位10銘柄を毎日記録し、価格から決済を再計算）
-  contest.py       仲間内の大会（Google フォームの注文を日足で約定させ、週間・月間・年間・累計の利益率で順位付け）
+  contest.py       仲間内の大会（Supabase の口座の注文を日足で約定させ、週間・月間・年間・累計の利益率で順位付け。旧方式の Google フォームにも対応）
   app.py           ページ用データの組み立てと HTML 出力
   app_template.html ページ本体（ランキング・お気に入り・検索・デモトレード・確認画面）
   cli.py           コマンド（fetch / backtest / walkforward / screen / app）

@@ -74,7 +74,11 @@
   - 2026-11-18 01:10 JST 切り替え済み: Supabase プロジェクト `uvtfueomknvzvtqnhlpv`（シドニー）、メール確認オフ、`supabase.sql` 実行済み、`contest/config.json` を supabase に変更。GitHub Secrets の `SUPABASE_SERVICE_KEY` は依頼者が登録（Claude からは確認できない。毎朝の実行記録の "contest:" 行で分かる）。
   - 切り替え後、Google フォーム方式は使わない（フォームとシートは依頼者が消してよい）。
 
-## 8. 未決事項（依頼者の判断待ち）
+## 8. 期限のある作業
+
+- Supabase の従来形式の鍵（Legacy の anon / service_role）は 2027 年早々に廃止予定（Supabase の画面表示）。管理用は新形式（`sb_secret_…`）で GitHub Secrets `SUPABASE_SERVICE_KEY` に登録済み（2026-11-18）。ページに埋め込んだ公開用の鍵は従来形式の anon（`contest/config.json` の `anon_key`）のままなので、廃止前に新形式（`sb_publishable_…`）へ切り替え、supabase-js（今は 2.45.4）が新形式で動くことを確かめる。
+
+## 9. 未決事項（依頼者の判断待ち）
 
 1. スクリーニングのしきい値は前任が置いた既定値のまま（依頼者の確認なし）。
 2. ダウ理論の時間軸（スイング判定の前後5本）を延ばすか。
