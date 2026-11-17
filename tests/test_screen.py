@@ -270,3 +270,12 @@ def test_etf_universe_and_unknown_name():
     assert {"SPY", "1306.T", "GLD"} <= set(t["symbol"]) and t["symbol"].is_unique
     with pytest.raises(ValueError):
         load_universe("nasdaq")
+
+
+def test_find_jpx_list_links_prefers_data_j_and_resolves():
+    from tradelab.screen import find_jpx_list_links
+    html = ('<a href="/markets/x/other.pdf">pdf</a><a href="/markets/abc-att/summary.xlsx">s</a>'
+            "<a href='/markets/new-att/data_j.xls'>一覧</a>")
+    links = find_jpx_list_links(html, "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html")
+    assert links[0] == "https://www.jpx.co.jp/markets/new-att/data_j.xls"
+    assert links[1].endswith("/summary.xlsx") and len(links) == 2

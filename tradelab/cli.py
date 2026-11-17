@@ -222,11 +222,17 @@ def cmd_app(args) -> int:
                              "refusing to publish an incomplete ranking")
         lists["us"] = ("米国株", us)
     if "jp" in markets:
-        jp, shares["jp"] = screen("jp", "JP prime", load_universe("jp_prime", cache_dir=args.universe),
-                                  {"TOPIX（1306.T）": "1306.T", "日経平均": "^N225"},
-                                  True, "東証プライム（内国株式）")
-        lists["jp"] = ("日本株", jp)
-        currencies["jp"] = {s: "JPY" for s in jp.table["symbol"]}
+        try:
+            jp_universe = load_universe("jp_prime", cache_dir=args.universe)
+        except Exception as exc:       # keep the other markets publishing
+            print(f"WARNING: Japanese stocks skipped: {exc}", file=sys.stderr)
+            jp_universe = None
+        if jp_universe is not None:
+            jp, shares["jp"] = screen("jp", "JP prime", jp_universe,
+                                      {"TOPIX（1306.T）": "1306.T", "日経平均": "^N225"},
+                                      True, "東証プライム（内国株式）")
+            lists["jp"] = ("日本株", jp)
+            currencies["jp"] = {s: "JPY" for s in jp.table["symbol"]}
     if "etf" in markets:
         etf, shares["etf"] = screen("etf", "ETF", load_universe("etf"),
                                     {"S&P 500": "^GSPC", "TOPIX（1306.T）": "1306.T"},

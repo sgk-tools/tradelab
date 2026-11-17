@@ -37,8 +37,46 @@ MIN_BARS = 253
 
 SP500_URL = ("https://raw.githubusercontent.com/datasets/s-and-p-500-companies/"
              "main/data/constituents.csv")
+# JPX's listed-company file. Its address changes from time to time, so the
+# link is looked up on the page that lists it; the fixed URL is a last resort.
+JPX_LIST_PAGE = "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
 JPX_LIST_URL = ("https://www.jpx.co.jp/markets/statistics-equities/misc/"
                 "tvdivq0000001vg2-att/data_j.xls")
+
+
+def find_jpx_list_links(html: str, base: str = JPX_LIST_PAGE) -> list[str]:
+    """Absolute URLs of the listed-company spreadsheet(s) linked from ``html``."""
+    import re
+    from urllib.parse import urljoin
+    hrefs = re.findall(r'href=["\']([^"\']+\.xlsx?)["\']', html, flags=re.I)
+    ranked = sorted(dict.fromkeys(hrefs), key=lambda h: (0 if "data_j" in h else 1, h))
+    return [urljoin(base, h) for h in ranked]
+
+
+def _download_jpx_list() -> pd.DataFrame:
+    import io
+
+    import requests
+    ua = {"User-Agent": "Mozilla/5.0"}
+    urls, errors = [], []
+    try:
+        page = requests.get(JPX_LIST_PAGE, timeout=60, headers=ua)
+        page.raise_for_status()
+        urls = find_jpx_list_links(page.text)
+    except Exception as exc:
+        errors.append(f"page: {exc}")
+    for url in urls + [JPX_LIST_URL]:
+        try:
+            r = requests.get(url, timeout=60, headers=ua)
+            r.raise_for_status()
+            table = parse_jpx_list(pd.read_excel(io.BytesIO(r.content)))
+            if len(table) < 500:
+                raise ValueError(f"only {len(table)} prime stocks")
+            print(f"JPX list: {url} ({len(table)} prime stocks)", file=__import__("sys").stderr)
+            return table
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+    raise ValueError("JPX list unavailable: " + " | ".join(e[:160] for e in errors))
 # Major ETFs (index, sector, bond, commodity). Confirm availability at your broker.
 ETF_US = [
     ("SPY", "S&P 500"), ("VOO", "S&P 500"), ("QQQ", "NASDAQ 100"), ("DIA", "ダウ平均"),
@@ -263,16 +301,9 @@ def load_universe(name: str | None = None, file: str | None = None,
                              "name": [n for _, n in ETF_US + ETF_JP],
                              "sector": ["米国ETF"] * len(ETF_US) + ["日本ETF"] * len(ETF_JP)})
     if name == "jp_prime":
-        import io
-
-        import requests
         saved = Path(cache_dir) / "jp_prime.csv"
         try:
-            r = requests.get(JPX_LIST_URL, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
-            r.raise_for_status()
-            table = parse_jpx_list(pd.read_excel(io.BytesIO(r.content)))
-            if len(table) < 500:
-                raise ValueError(f"only {len(table)} prime stocks in the JPX list")
+            table = _download_jpx_list()
             saved.parent.mkdir(parents=True, exist_ok=True)
             table.to_csv(saved, index=False)
             return table
